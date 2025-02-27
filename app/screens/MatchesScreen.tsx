@@ -103,7 +103,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
         <Text style={styles.venueName}>{venue?.name || 'Venue'}</Text>
         <TouchableOpacity 
           style={styles.historyButton}
-          onPress={() => navigation.navigate('MatchHistory')}
+          onPress={() => navigation.navigate('Stats')}
         >
           <Text style={styles.historyButtonText}>History</Text>
         </TouchableOpacity>

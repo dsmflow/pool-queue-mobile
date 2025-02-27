@@ -164,17 +164,6 @@ export const archiveMatch = async (matchId: string): Promise<void> => {
     // First, get the match details
     const match = await fetchMatch(matchId);
     
-    // Determine the winner based on scores
-    let winnerIndex = -1;
-    if (match.score && Array.isArray(match.score.current_score)) {
-      const scores = match.score.current_score;
-      if (scores[0] > scores[1]) {
-        winnerIndex = 0;
-      } else if (scores[1] > scores[0]) {
-        winnerIndex = 1;
-      }
-    }
-    
     // Extract all player IDs from teams
     const allPlayers = match.teams.reduce((acc: string[], team) => {
       if (team.players && Array.isArray(team.players)) {
@@ -183,15 +172,38 @@ export const archiveMatch = async (matchId: string): Promise<void> => {
       return acc;
     }, []);
     
+    // Determine the winner based on scores
+    let winnerPlayerId = null;
+    if (match.score && Array.isArray(match.score.current_score)) {
+      const scores = match.score.current_score;
+      if (scores[0] > scores[1] && match.teams[0]?.players?.length > 0) {
+        // First team won, use the first player from that team
+        winnerPlayerId = match.teams[0].players[0];
+      } else if (scores[1] > scores[0] && match.teams[1]?.players?.length > 0) {
+        // Second team won, use the first player from that team
+        winnerPlayerId = match.teams[1].players[0];
+      }
+    }
+    
     // Create a summary of the match for archiving
     const matchSummary = {
       match_id: matchId,
       table_id: match.table_id,
       players: allPlayers,
       final_score: match.score?.current_score || [0, 0],
-      winner_player_id: winnerIndex >= 0 ? allPlayers[winnerIndex] : null,
+      winner_player_id: winnerPlayerId,
       start_time: match.start_time,
-      end_time: new Date().toISOString(),
+      end_time: match.end_time || new Date().toISOString(),
+      duration_minutes: calculateDurationMinutes(match.start_time, match.end_time || new Date().toISOString()),
+      metadata: {
+        name: match.name,
+        type: match.type,
+        teams: match.teams.map(team => ({
+          name: team.name,
+          type: team.type,
+          players: team.players
+        }))
+      }
     };
     
     // Insert into match_archives
@@ -213,4 +225,12 @@ export const archiveMatch = async (matchId: string): Promise<void> => {
     console.error('Error archiving match:', error);
     throw error;
   }
+};
+
+// Helper function to calculate duration in minutes
+const calculateDurationMinutes = (startTime: string, endTime: string): number => {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const durationMs = end.getTime() - start.getTime();
+  return Math.round(durationMs / (1000 * 60)); // Convert ms to minutes
 };

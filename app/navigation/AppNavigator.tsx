@@ -5,7 +5,7 @@ import { TabNavigator } from './TabNavigator';
 import { MatchSetupScreen } from '../screens/MatchSetupScreen';
 import { MatchScreen } from '../screens/MatchScreen';
 import { PlayerScreen } from '../screens/PlayerScreen';
-import { MatchHistoryScreen } from '../screens/MatchHistoryScreen';
+import { StatsScreen } from '../screens/StatsScreen';
 import { AdminScreen } from '../screens/AdminScreen';
 import { supabase } from '../api/supabase';
 import { RootStackParamList } from '../types/navigation.types';
@@ -75,8 +75,8 @@ export const AppNavigator = () => {
         options={{ title: 'Players' }}
       />
       <Stack.Screen 
-        name="MatchHistory" 
-        component={MatchHistoryScreen}
+        name="Stats" 
+        component={StatsScreen}
         options={{ title: 'Stats' }}
       />
       

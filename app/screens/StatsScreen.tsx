@@ -15,21 +15,21 @@ import { supabase } from '../api/supabase';
 import { format } from 'date-fns';
 import { ArchivedMatch } from '../types/custom.types';
 
-type MatchHistoryScreenNavigationProp = StackNavigationProp<RootStackParamList, 'MatchHistory'>;
+type StatsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Stats'>;
 
 type Props = {
-  navigation: MatchHistoryScreenNavigationProp;
+  navigation: StatsScreenNavigationProp;
 };
 
-export const MatchHistoryScreen: React.FC<Props> = ({ navigation }) => {
+export const StatsScreen: React.FC<Props> = ({ navigation }) => {
   const [matches, setMatches] = useState<ArchivedMatch[]>([]);
   const [loading, setLoading] = useState(true);
   
   useEffect(() => {
-    fetchMatchHistory();
+    fetchStats();
   }, []);
   
-  const fetchMatchHistory = async () => {
+  const fetchStats = async () => {
     try {
       setLoading(true);
       
@@ -134,7 +134,7 @@ export const MatchHistoryScreen: React.FC<Props> = ({ navigation }) => {
       
       <TouchableOpacity
         style={styles.refreshButton}
-        onPress={fetchMatchHistory}
+        onPress={fetchStats}
       >
         <Text style={styles.refreshButtonText}>Refresh</Text>
       </TouchableOpacity>

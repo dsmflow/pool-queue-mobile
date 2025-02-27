@@ -20,7 +20,7 @@ export type RootStackParamList = {
   Match: { matchId: string; tableId: string };
   Players: undefined;
   PlayerDetailsScreen: { playerId: string };
-  MatchHistory: undefined;
+  Stats: undefined;
   
   // Settings and other screens
   SettingsScreen: undefined;
