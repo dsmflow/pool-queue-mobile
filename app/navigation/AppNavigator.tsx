@@ -8,15 +8,16 @@ import { PlayerScreen } from '../screens/PlayerScreen';
 import { StatsScreen } from '../screens/StatsScreen';
 import { AdminScreen } from '../screens/AdminScreen';
 import { supabase } from '../api/supabase';
-import { RootStackParamList } from '../types/navigation.types';
+import { RootStackParamList } from '../types/navigation.types'; // Import the type
 import { useAuth } from '../context/AuthContext';
+import { ProfileScreen } from '../screens/ProfileScreen';
 
-const Stack = createStackNavigator<RootStackParamList>();
+const Stack = createStackNavigator<RootStackParamList>(); // Correct type parameter
 
 export const AppNavigator = () => {
   const [defaultVenueId, setDefaultVenueId] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();  // Get user
 
   useEffect(() => {
     const fetchDefaultVenue = async () => {
@@ -26,10 +27,12 @@ export const AppNavigator = () => {
           .from('venues')
           .select('id')
           .limit(1)
-          .single();
-        
+          .single(); // Good - .single()
+
         if (error) throw error;
-        setDefaultVenueId(data.id);
+        if (data && data.id) { // Check for data and data.id
+          setDefaultVenueId(data.id);
+        }
       } catch (error) {
         console.error('Error fetching default venue:', error);
       } finally {
@@ -37,8 +40,13 @@ export const AppNavigator = () => {
       }
     };
 
-    fetchDefaultVenue();
-  }, []);
+    if (user) { // Only fetch if user is logged in
+      fetchDefaultVenue();
+    } else {
+      setLoading(false)
+    }
+
+  }, [user]); // Depend on user
 
   if (loading) {
     return (
@@ -51,41 +59,46 @@ export const AppNavigator = () => {
   return (
     <Stack.Navigator initialRouteName="MainTabs">
       {/* Main Tab Navigator */}
-      <Stack.Screen 
-        name="MainTabs" 
+      <Stack.Screen
+        name="MainTabs"
         options={{ headerShown: false }}
       >
         {() => <TabNavigator defaultVenueId={defaultVenueId} />}
       </Stack.Screen>
-      
+
       {/* Screens accessible from tabs */}
-      <Stack.Screen 
-        name="MatchSetup" 
+      <Stack.Screen
+        name="MatchSetup"
         component={MatchSetupScreen}
         options={{ title: 'New Match' }}
       />
-      <Stack.Screen 
-        name="Match" 
+      <Stack.Screen
+        name="Match"
         component={MatchScreen}
         options={{ title: 'Match Details' }}
       />
-      <Stack.Screen 
-        name="Players" 
+      <Stack.Screen
+        name="Players"
         component={PlayerScreen}
         options={{ title: 'Players' }}
       />
-      <Stack.Screen 
-        name="Stats" 
+      <Stack.Screen
+        name="ProfileScreen"
+        component={ProfileScreen}
+        options={{ title: 'Profile' }}
+      />
+      <Stack.Screen
+        name="Stats"
         component={StatsScreen}
         options={{ title: 'Stats' }}
       />
-      
+
       {/* Admin Screen - only accessible to admins */}
       {isAdmin && (
-        <Stack.Screen 
-          name="AdminScreen" 
+        <Stack.Screen
+          name="AdminScreen"
           component={AdminScreen}
-          options={{ 
+          options={{
             title: 'Admin Panel',
             headerStyle: {
               backgroundColor: '#e74c3c',

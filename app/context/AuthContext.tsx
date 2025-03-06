@@ -7,7 +7,7 @@ import { Alert } from 'react-native';
 type AuthContextType = {
   user: User | null;
   session: Session | null;
-  loading: boolean;
+  isLoading: boolean;
   isAdmin: boolean;
   signUp: (email: string, password: string) => Promise<{ data: { user: User | null } | null; error: any | null }>;
   signIn: (email: string, password: string) => Promise<{ error: any | null }>;
@@ -20,7 +20,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
-  loading: true,
+  isLoading: true,
   isAdmin: false,
   signUp: async () => ({ data: null, error: null }),
   signIn: async () => ({ error: null }),
@@ -36,7 +36,7 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -56,7 +56,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } catch (error) {
         console.error('Error checking session:', error);
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
     
@@ -192,7 +192,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       value={{
         user,
         session,
-        loading,
+        isLoading,
         isAdmin,
         signUp,
         signIn,

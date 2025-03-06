@@ -9,9 +9,9 @@ import { AuthNavigator } from './AuthNavigator';
 const Stack = createStackNavigator();
 
 export const RootNavigator = () => {
-  const { user, loading } = useAuth();
+  const { user, isLoading } = useAuth(); // Corrected isLoading
 
-  if (loading) {
+  if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#0000ff" />

@@ -5,6 +5,7 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { MatchesScreen } from '../screens/MatchesScreen';
 import { RulesScreen } from '../screens/RulesScreen';
 import { MainTabParamList } from '../types/navigation.types';
+import { ProfileScreen } from '../screens/ProfileScreen';
 
 // You can replace these with actual icons
 const HomeIcon = ({ color }: { color: string }) => (
@@ -22,6 +23,12 @@ const MatchesIcon = ({ color }: { color: string }) => (
 const RulesIcon = ({ color }: { color: string }) => (
   <View style={[styles.iconContainer, { backgroundColor: color }]}>
     <Text style={styles.iconText}>📋</Text>
+  </View>
+);
+
+const ProfileIcon = ({ color }: { color: string }) => (
+  <View style={[styles.iconContainer, { backgroundColor: color }]}>
+    <Text style={styles.iconText}>🧑</Text>
   </View>
 );
 
@@ -71,6 +78,14 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({ defaultVenueId }) =>
         options={{
           tabBarLabel: 'Rules',
           tabBarIcon: ({ color }) => <RulesIcon color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          tabBarLabel: 'Profile',
+          tabBarIcon: ({ color }) => <ProfileIcon color={color} />,
         }}
       />
     </Tab.Navigator>

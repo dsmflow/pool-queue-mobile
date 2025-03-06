@@ -2,7 +2,7 @@ import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
-// Auth stack navigator params
+// --- Auth Stack ---
 export type AuthStackParamList = {
   Login: undefined;
   Register: undefined;
@@ -10,65 +10,48 @@ export type AuthStackParamList = {
   ResetPassword: undefined;
 };
 
-// Main stack navigator params
-export type RootStackParamList = {
-  // Tab Navigator
-  MainTabs: undefined;
-  
-  // Screens accessible from tabs
-  MatchSetup: { tableId: string };
-  Match: { matchId: string; tableId: string };
-  Players: undefined;
-  PlayerDetailsScreen: { playerId: string };
-  Stats: undefined;
-  
-  // Settings and other screens
-  SettingsScreen: undefined;
-  ProfileScreen: undefined;
-  AdminScreen: undefined;
-  
-  // Auth screens (for navigation from within the app)
-  Login: undefined;
-  Register: undefined;
-  ForgotPassword: undefined;
-  ResetPassword: undefined;
-};
-
-// Tab navigator params
+// --- Main Tab Navigator ---
 export type MainTabParamList = {
   Home: undefined;
   Matches: { venueId: string };
   Rules: undefined;
+  Profile: undefined;
+  Match: { matchId: string; tableId: string };
 };
 
-// Navigation prop types
-export type RootStackNavigationProp<T extends keyof RootStackParamList> = StackNavigationProp<
-  RootStackParamList,
-  T
->;
+// --- Root Stack ---
+export type RootStackParamList = {
+  MainTabs: undefined; // Represents the entire tab navigator
+  MatchSetup: { tableId: string };
+  Match: { matchId: string; tableId: string };
+  Players: undefined;
+  PlayerDetailsScreen: { playerId: string }; // Keep this, as it's defined
+  Stats: undefined;
+  SettingsScreen: undefined; // Keep this
+  ProfileScreen: undefined; // Correct location
+  AdminScreen: undefined;
+};
 
-export type AuthStackNavigationProp<T extends keyof AuthStackParamList> = StackNavigationProp<
-  AuthStackParamList,
-  T
->;
+// --- Helper Types (Simplified and Consolidated) ---
 
-export type MainTabNavigationProp<T extends keyof MainTabParamList> = BottomTabNavigationProp<
-  MainTabParamList,
-  T
->;
+// For screens within the RootStack
+export type RootStackScreenProps<T extends keyof RootStackParamList> = {
+  navigation: StackNavigationProp<RootStackParamList, T>;
+  route: RouteProp<RootStackParamList, T>;
+};
 
-// Route prop types
-export type RootStackRouteProp<T extends keyof RootStackParamList> = RouteProp<
-  RootStackParamList,
-  T
->;
+// For screens within the AuthStack
+export type AuthStackScreenProps<T extends keyof AuthStackParamList> = {
+  navigation: StackNavigationProp<AuthStackParamList, T>;
+  route: RouteProp<AuthStackParamList, T>;
+};
 
-export type AuthStackRouteProp<T extends keyof AuthStackParamList> = RouteProp<
-  AuthStackParamList,
-  T
->;
+// For screens within tabs (using BottomTabNavigationProp)
+export type MainTabScreenProps<T extends keyof MainTabParamList> = {
+  navigation: BottomTabNavigationProp<MainTabParamList, T>;
+  route: RouteProp<MainTabParamList, T>;
+};
 
-export type MainTabRouteProp<T extends keyof MainTabParamList> = RouteProp<
-  MainTabParamList,
-  T
->;
+// If you need StackNavigationProp within a tab (e.g., for MatchesScreen):
+export type MainTabStackNavigationProp<T extends keyof MainTabParamList> =
+  StackNavigationProp<RootStackParamList, 'MainTabs'>;

@@ -3,20 +3,18 @@ import { Json, Match, Player } from './database.types';
 // Team structure in a match
 export interface TeamData {
   name: string;
-  players: string[];
-  type: 'stripes' | 'solids';
-  playerDetails?: Player[];
+  players: string[]; // Array of player IDs
+  type: 'stripes' | 'solids'; // Assuming these are the only two types
+  playerDetails?: Player[]; // Optional array of Player objects
 }
 
 // Enhanced match with player details
 export interface EnhancedMatch extends Omit<Match, 'teams'> {
-  teams: TeamData[];
-  score?: {
+  teams: TeamData[]; // NOT optional - every match should have teams
+  score: { // Consistent with your database
     current_score: number[];
     games_to_win: number;
   };
-  name?: string;
-  type?: string;
 }
 
 // Player with details from queue
@@ -51,7 +49,7 @@ export interface ExtendedPlayerProfile extends Player {
   is_admin?: boolean;
 }
 
-// Match team structure
+// Match team structure (This seems redundant with TeamData - consider removing)
 export interface MatchTeam {
   name: string;
   players: string[];  // Array of player UUIDs
@@ -71,4 +69,6 @@ export interface ArchivedMatch {
   archived_at: string;
   metadata: Record<string, any> | null;
   duration_minutes: number | null;
+  winner_team: string; // Added this to show that I have this field as well.
+  teams: { name: string }[];
 }
