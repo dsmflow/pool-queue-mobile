@@ -37,7 +37,7 @@ export const MatchSetupScreen: React.FC<Props> = ({ route, navigation }) => {
   const [team2Name, setTeam2Name] = useState('Team 2');
   const [team1Players, setTeam1Players] = useState<string[]>([]);
   const [team2Players, setTeam2Players] = useState<string[]>([]);
-  const [team1Type, setTeam1Type] = useState<'stripes' | 'solids'>('stripes');
+  const [raceTo, setRaceTo] = useState<number>(1); // Default to race to 1 game
   
   useEffect(() => {
     const fetchData = async () => {
@@ -87,8 +87,14 @@ export const MatchSetupScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   };
   
-  const toggleTeamType = () => {
-    setTeam1Type(team1Type === 'stripes' ? 'solids' : 'stripes');
+  // Function to increase race to value
+  const incrementRaceTo = () => {
+    setRaceTo(prev => Math.min(prev + 1, 10)); // Max value of 10
+  };
+  
+  // Function to decrease race to value
+  const decrementRaceTo = () => {
+    setRaceTo(prev => Math.max(prev - 1, 1)); // Min value of 1
   };
   
   const handleStartMatch = async () => {
@@ -102,16 +108,16 @@ export const MatchSetupScreen: React.FC<Props> = ({ route, navigation }) => {
         {
           name: team1Name,
           players: team1Players,
-          type: team1Type
+          type: 'undecided'  // Type will be decided during the match
         },
         {
           name: team2Name,
           players: team2Players,
-          type: team1Type === 'stripes' ? 'solids' : 'stripes'
+          type: 'undecided'  // Type will be decided during the match
         }
       ];
       
-      const match = await startMatch(tableId, teams);
+      const match = await startMatch(tableId, teams, raceTo);
       
       // Navigate to the Match screen to view the match instead of going back
       navigation.navigate('Match', { 
@@ -139,6 +145,28 @@ export const MatchSetupScreen: React.FC<Props> = ({ route, navigation }) => {
         {table?.name} • {table?.type}
       </Text>
       
+      {/* Race to setting */}
+      <View style={styles.raceToContainer}>
+        <Text style={styles.raceToLabel}>Race to:</Text>
+        <View style={styles.raceToControls}>
+          <TouchableOpacity 
+            style={styles.raceToButton}
+            onPress={decrementRaceTo}
+            disabled={raceTo <= 1}
+          >
+            <Text style={styles.raceToButtonText}>-</Text>
+          </TouchableOpacity>
+          <Text style={styles.raceToValue}>{raceTo}</Text>
+          <TouchableOpacity 
+            style={styles.raceToButton}
+            onPress={incrementRaceTo}
+            disabled={raceTo >= 10}
+          >
+            <Text style={styles.raceToButtonText}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      
       <View style={styles.teamsContainer}>
         {/* Team 1 Setup */}
         <View style={styles.teamSection}>
@@ -148,15 +176,6 @@ export const MatchSetupScreen: React.FC<Props> = ({ route, navigation }) => {
             onChangeText={setTeam1Name}
             placeholder="Team 1 Name"
           />
-          <TouchableOpacity 
-            style={[
-              styles.teamTypeButton, 
-              { backgroundColor: team1Type === 'stripes' ? '#3498db' : '#e74c3c' }
-            ]}
-            onPress={toggleTeamType}
-          >
-            <Text style={styles.teamTypeText}>{team1Type}</Text>
-          </TouchableOpacity>
           
           <Text style={styles.sectionTitle}>Select Players:</Text>
           <FlatList
@@ -186,14 +205,6 @@ export const MatchSetupScreen: React.FC<Props> = ({ route, navigation }) => {
             onChangeText={setTeam2Name}
             placeholder="Team 2 Name"
           />
-          <View style={[
-            styles.teamTypeButton, 
-            { backgroundColor: team1Type === 'stripes' ? '#e74c3c' : '#3498db' }
-          ]}>
-            <Text style={styles.teamTypeText}>
-              {team1Type === 'stripes' ? 'solids' : 'stripes'}
-            </Text>
-          </View>
           
           <Text style={styles.sectionTitle}>Select Players:</Text>
           <FlatList
@@ -246,7 +257,45 @@ const styles = StyleSheet.create({
   tableInfo: {
     fontSize: 16,
     color: '#7f8c8d',
-    marginBottom: 24,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  raceToContainer: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  raceToLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+  },
+  raceToControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  raceToButton: {
+    backgroundColor: '#3498db',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  raceToButtonText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  raceToValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginHorizontal: 12,
+    minWidth: 24,
     textAlign: 'center',
   },
   teamsContainer: {

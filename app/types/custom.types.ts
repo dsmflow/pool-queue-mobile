@@ -4,7 +4,7 @@ import { Json, Match, Player } from './database.types';
 export interface TeamData {
   name: string;
   players: string[]; // Array of player IDs
-  type: 'stripes' | 'solids'; // Assuming these are the only two types
+  type: 'stripes' | 'solids' | 'undecided'; // Added 'undecided' for initial match setup
   playerDetails?: Player[]; // Optional array of Player objects
 }
 

@@ -125,6 +125,14 @@ export const HomeScreen: React.FC = () => {
         }
       });
       
+      // Get all unique table IDs from matches
+      const allTableIds = new Set<string>();
+      userMatches.forEach(match => {
+        if (match.table_id) {
+          allTableIds.add(match.table_id);
+        }
+      });
+      
       // Fetch player names for all players in the matches
       const { data: playersData, error: playersError } = await supabase
         .from('players')
@@ -135,11 +143,29 @@ export const HomeScreen: React.FC = () => {
         console.error('Error fetching player names:', playersError);
       }
       
+      // Fetch table information for all tables in the matches
+      const { data: tablesData, error: tablesError } = await supabase
+        .from('tables')
+        .select('id, name')
+        .in('id', Array.from(allTableIds));
+      
+      if (tablesError) {
+        console.error('Error fetching table information:', tablesError);
+      }
+      
       // Create a map of player IDs to player names
       const playerMap = new Map<string, string>();
       if (playersData) {
         playersData.forEach(player => {
           playerMap.set(player.id, player.name);
+        });
+      }
+      
+      // Create a map of table IDs to table names
+      const tableMap = new Map<string, string>();
+      if (tablesData) {
+        tablesData.forEach(table => {
+          tableMap.set(table.id, table.name);
         });
       }
       
@@ -238,12 +264,16 @@ export const HomeScreen: React.FC = () => {
         
         console.log(`Team 1: ${team1Players.join(' & ')}, Team 2: ${team2Players.join(' & ')}, Score: ${score[0]}-${score[1]}`);
         
+        // Get table name from the map, or use a default
+        const tableName = match.table_id ? tableMap.get(match.table_id) || 'Table' : 'Unknown Table';
+        
         return {
           ...match,
           enhancedData: {
             team1Name: team1Players.join(' & '),
             team2Name: team2Players.join(' & '),
-            score: score
+            score: score,
+            tableName: tableName
           }
         };
       });
@@ -352,7 +382,9 @@ export const HomeScreen: React.FC = () => {
             
             <TouchableOpacity
               style={styles.profileActionButton}
-              onPress={() => navigation.navigate('Stats')}
+              onPress={() => navigation.dispatch(
+                CommonActions.navigate('Stats')
+              )}
             >
               <Text style={styles.profileActionButtonText}>Stats</Text>
             </TouchableOpacity>
@@ -495,7 +527,10 @@ export const HomeScreen: React.FC = () => {
                   }}
                 >
                   <View style={styles.matchHeader}>
-                    <Text style={styles.matchDate}>{formattedDate}</Text>
+                    <View style={styles.matchDateContainer}>
+                      <Text style={styles.matchDate}>{formattedDate}</Text>
+                      <Text style={styles.tableName}>{match.enhancedData.tableName}</Text>
+                    </View>
                     <Text style={[
                       styles.matchStatus,
                       isActive ? styles.activeStatus : styles.completedStatus
@@ -681,9 +716,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
+  matchDateContainer: {
+    flexDirection: 'column',
+  },
   matchDate: {
     fontSize: 14,
     color: '#7f8c8d',
+  },
+  tableName: {
+    fontSize: 12,
+    color: '#95a5a6',
+    marginTop: 2,
   },
   matchStatus: {
     fontSize: 14,

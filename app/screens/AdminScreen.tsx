@@ -9,7 +9,8 @@ import {
   ActivityIndicator,
   SafeAreaView,
   StatusBar,
-  Platform
+  Platform,
+  ScrollView
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../api/supabase';
@@ -35,6 +36,9 @@ export const AdminScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeMatches, setActiveMatches] = useState<ActiveMatch[]>([]);
   const [processingMatch, setProcessingMatch] = useState<string | null>(null);
+  const [isResettingTables, setIsResettingTables] = useState(false);
+  const [isResettingQueues, setIsResettingQueues] = useState(false);
+  const [isEndingAllMatches, setIsEndingAllMatches] = useState(false);
 
   useEffect(() => {
     if (!isAdmin) {
@@ -98,6 +102,147 @@ export const AdminScreen: React.FC = () => {
               Alert.alert('Error', 'Failed to end match');
             } finally {
               setProcessingMatch(null);
+            }
+          }
+        }
+      ]
+    );
+  };
+  
+  // Reset all tables to available
+  const handleResetTables = async () => {
+    Alert.alert(
+      'Reset All Tables',
+      'Are you sure you want to reset all tables to available? This will not affect active matches.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset Tables',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsResettingTables(true);
+              
+              // First get all tables
+              const { data: allTables, error: fetchError } = await supabase
+                .from('tables')
+                .select('id');
+              
+              if (fetchError) throw fetchError;
+              
+              // Create a set of active table IDs for quick lookup
+              const activeTableIds = new Set(activeMatches.map(match => match.table_id));
+              
+              // Filter out tables that have active matches
+              const tablesToUpdate = allTables
+                .filter(table => !activeTableIds.has(table.id))
+                .map(table => table.id);
+              
+              if (tablesToUpdate.length === 0) {
+                Alert.alert('Info', 'No tables need updating or all tables are in active matches');
+                return;
+              }
+              
+              // Update only the tables that don't have active matches
+              const { error: updateError } = await supabase
+                .from('tables')
+                .update({ is_available: true })
+                .in('id', tablesToUpdate);
+              
+              if (updateError) throw updateError;
+              
+              Alert.alert('Success', `${tablesToUpdate.length} tables have been reset to available status`);
+            } catch (error) {
+              console.error('Error resetting tables:', error);
+              Alert.alert('Error', 'Failed to reset tables: ' + (error as any).message);
+            } finally {
+              setIsResettingTables(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+  
+  // Clear all queues
+  const handleClearQueues = async () => {
+    Alert.alert(
+      'Clear All Queues',
+      'Are you sure you want to clear all player queues? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Queues',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsResettingQueues(true);
+              
+              // Delete all queue entries
+              const { error } = await supabase
+                .from('queue_entries')
+                .delete()
+                .gte('id', '0'); // This is a trick to delete all rows
+              
+              if (error) throw error;
+              
+              Alert.alert('Success', 'All queues have been cleared');
+            } catch (error) {
+              console.error('Error clearing queues:', error);
+              Alert.alert('Error', 'Failed to clear queues');
+            } finally {
+              setIsResettingQueues(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+  
+  // End and archive all active matches
+  const handleEndAllMatches = async () => {
+    if (activeMatches.length === 0) {
+      Alert.alert('No Matches', 'There are no active matches to end.');
+      return;
+    }
+    
+    Alert.alert(
+      'End All Matches',
+      `Are you sure you want to end all ${activeMatches.length} active matches? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End All Matches',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsEndingAllMatches(true);
+              
+              // Process each match sequentially to avoid race conditions
+              for (const match of activeMatches) {
+                try {
+                  // End the match first
+                  await endMatch(match.id, match.table_id);
+                  
+                  // Then archive it
+                  await archiveMatch(match.id);
+                  
+                  console.log(`Successfully ended and archived match ${match.id}`);
+                } catch (error) {
+                  console.error(`Error processing match ${match.id}:`, error);
+                  // Continue with other matches even if one fails
+                }
+              }
+              
+              // Refresh the list
+              await fetchActiveMatches();
+              
+              Alert.alert('Success', 'All matches have been ended and archived');
+            } catch (error) {
+              console.error('Error ending all matches:', error);
+              Alert.alert('Error', 'There was an error ending some matches');
+            } finally {
+              setIsEndingAllMatches(false);
             }
           }
         }
@@ -169,24 +314,71 @@ export const AdminScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
         
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Active Matches</Text>
-          
-          {loading ? (
-            <ActivityIndicator size="large" color="#2196f3" style={styles.loader} />
-          ) : activeMatches.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No active matches found</Text>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          {/* Admin Actions Section */}
+          <View style={styles.adminActionsContainer}>
+            <Text style={styles.sectionTitle}>Admin Actions</Text>
+            
+            <View style={styles.actionButtonsContainer}>
+              <TouchableOpacity 
+                style={[styles.actionButton, isResettingTables && styles.disabledActionButton]}
+                onPress={handleResetTables}
+                disabled={isResettingTables}
+              >
+                {isResettingTables ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.actionButtonText}>Reset All Tables</Text>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.actionButton, isResettingQueues && styles.disabledActionButton]}
+                onPress={handleClearQueues}
+                disabled={isResettingQueues}
+              >
+                {isResettingQueues ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.actionButtonText}>Clear All Queues</Text>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.dangerActionButton, isEndingAllMatches && styles.disabledActionButton]}
+                onPress={handleEndAllMatches}
+                disabled={isEndingAllMatches || activeMatches.length === 0}
+              >
+                {isEndingAllMatches ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.actionButtonText}>End All Matches</Text>
+                )}
+              </TouchableOpacity>
             </View>
-          ) : (
-            <FlatList
-              data={activeMatches}
-              renderItem={renderMatchItem}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.listContent}
-            />
-          )}
-        </View>
+          </View>
+          
+          {/* Active Matches Section */}
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Active Matches</Text>
+            
+            {loading ? (
+              <ActivityIndicator size="large" color="#2196f3" style={styles.loader} />
+            ) : activeMatches.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>No active matches found</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={activeMatches}
+                renderItem={renderMatchItem}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.listContent}
+                scrollEnabled={false} // Disable scrolling since we're using ScrollView
+              />
+            )}
+          </View>
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
@@ -201,6 +393,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f6fa',
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   header: {
     flexDirection: 'row',
@@ -226,8 +421,45 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
+  // Admin actions section
+  adminActionsContainer: {
+    backgroundColor: 'white',
+    margin: 16,
+    marginBottom: 0,
+    padding: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  actionButtonsContainer: {
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  actionButton: {
+    backgroundColor: '#2196f3',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  dangerActionButton: {
+    backgroundColor: '#e74c3c',
+  },
+  disabledActionButton: {
+    opacity: 0.6,
+  },
+  actionButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  // Matches section
   sectionContainer: {
-    flex: 1,
     padding: 16,
   },
   sectionTitle: {
@@ -307,10 +539,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   emptyText: {
     fontSize: 16,

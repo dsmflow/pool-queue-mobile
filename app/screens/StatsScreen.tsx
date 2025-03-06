@@ -58,6 +58,177 @@ export const StatsScreen: React.FC<Props> = ({ navigation }) => {
       
       if (error) throw error;
       
+      if (data && data.length > 0) {
+        // Get all player IDs from all matches
+        const allPlayerIds = new Set<string>();
+        
+        data.forEach(match => {
+          // Add players from the players array
+          if (match.players && Array.isArray(match.players)) {
+            match.players.forEach(playerId => {
+              if (playerId) allPlayerIds.add(playerId as string);
+            });
+          }
+          
+          // Check metadata for team players if needed
+          if (match.metadata && match.metadata.teams) {
+            const teams = match.metadata.teams;
+            if (Array.isArray(teams)) {
+              teams.forEach(team => {
+                if (team.players && Array.isArray(team.players)) {
+                  team.players.forEach(playerId => {
+                    if (playerId) allPlayerIds.add(playerId as string);
+                  });
+                }
+              });
+            }
+          }
+        });
+        
+        // Get all unique table IDs from matches
+        const allTableIds = new Set<string>();
+        data.forEach(match => {
+          if (match.table_id) {
+            allTableIds.add(match.table_id);
+          }
+        });
+        
+        if (allPlayerIds.size > 0) {
+          // Fetch player details for all player IDs
+          const { data: playersData, error: playersError } = await supabase
+            .from('players')
+            .select('id,name')
+            .in('id', Array.from(allPlayerIds));
+            
+          // Fetch table information for all tables in the matches
+          const { data: tablesData, error: tablesError } = await supabase
+            .from('tables')
+            .select('id, name')
+            .in('id', Array.from(allTableIds));
+          
+          if (playersError) {
+            console.error('Error fetching player details:', playersError);
+          } 
+          
+          if (tablesError) {
+            console.error('Error fetching table information:', tablesError);
+          }
+          
+          if (playersData) {
+            // Create a map of player IDs to player names
+            const playerMap = new Map<string, string>();
+            playersData.forEach(player => {
+              playerMap.set(player.id, player.name);
+            });
+            
+            // Create a map of table IDs to table names
+            const tableMap = new Map<string, string>();
+            if (tablesData) {
+              tablesData.forEach(table => {
+                tableMap.set(table.id, table.name);
+              });
+            }
+            
+            // Enhance match data with player names
+            const enhancedMatches = data.map(match => {
+              // Create enhanced team names based on player data
+              const enhancedTeams = [];
+              
+              // Try to get team data from metadata
+              if (match.metadata && match.metadata.teams && Array.isArray(match.metadata.teams)) {
+                const metadataTeams = match.metadata.teams;
+                
+                metadataTeams.forEach((team, index) => {
+                  if (team.players && Array.isArray(team.players)) {
+                    // Get player names for this team
+                    const playerNames = team.players
+                      .map(id => playerMap.get(id as string) || 'Unknown')
+                      .join(' & ');
+                    
+                    enhancedTeams.push({
+                      name: playerNames || `Team ${index + 1}`,
+                      original: team.name
+                    });
+                  } else {
+                    enhancedTeams.push({
+                      name: team.name || `Team ${index + 1}`,
+                      original: team.name
+                    });
+                  }
+                });
+              }
+              
+              // If we couldn't get team data from metadata, try using the players array
+              if (enhancedTeams.length === 0 && match.players && Array.isArray(match.players)) {
+                // For simplicity, assume first player is team 1, second player is team 2
+                if (match.players.length > 0) {
+                  const player1 = playerMap.get(match.players[0] as string) || 'Unknown';
+                  enhancedTeams.push({ name: player1, original: 'Team 1' });
+                }
+                
+                if (match.players.length > 1) {
+                  const player2 = playerMap.get(match.players[1] as string) || 'Unknown';
+                  enhancedTeams.push({ name: player2, original: 'Team 2' });
+                }
+              }
+              
+              // Make sure we have at least two teams
+              while (enhancedTeams.length < 2) {
+                enhancedTeams.push({ name: `Team ${enhancedTeams.length + 1}`, original: `Team ${enhancedTeams.length + 1}` });
+              }
+              
+              // Get winner information from metadata or fallback methods
+              let winnerTeam = null;
+              
+              // First check if winner_team is in metadata (new matches)
+              if (match.metadata && match.metadata.winner_team) {
+                winnerTeam = match.metadata.winner_team;
+              }
+              
+              // Then check if we have it directly on the match object (legacy matches)
+              if (!winnerTeam && match.winner_team) {
+                winnerTeam = match.winner_team;
+              }
+              
+              // Try to use enhanced team name if possible
+              if (winnerTeam && enhancedTeams.some(team => team.original === winnerTeam)) {
+                const winnerTeamObject = enhancedTeams.find(team => team.original === winnerTeam);
+                if (winnerTeamObject) {
+                  winnerTeam = winnerTeamObject.name;
+                }
+              }
+              
+              // If we still don't have a winner, use winner_player_id as fallback
+              if ((!winnerTeam || winnerTeam === 'Unknown') && match.winner_player_id) {
+                const playerName = playerMap.get(match.winner_player_id);
+                if (playerName) {
+                  winnerTeam = playerName;
+                }
+              }
+              
+              // Final fallback
+              if (!winnerTeam) {
+                winnerTeam = 'Unknown';
+              }
+              
+              // Get table name from the map, or use a default
+              const tableName = match.table_id ? tableMap.get(match.table_id) || 'Table' : 'Unknown Table';
+              
+              return {
+                ...match,
+                teams: enhancedTeams,
+                winner_team: winnerTeam,
+                tableName: tableName
+              };
+            });
+            
+            setMatches(enhancedMatches as ArchivedMatch[]);
+            return;
+          }
+        }
+      }
+      
+      // If we couldn't enhance data, just use the original data
       setMatches(data as ArchivedMatch[]);
     } catch (error) {
       console.error('Error fetching match history:', error);
@@ -68,40 +239,65 @@ export const StatsScreen: React.FC<Props> = ({ navigation }) => {
   };
   
   const renderMatchItem = ({ item }: { item: ArchivedMatch }) => {
-    const formattedDate = format(new Date(item.start_time), 'MMM d, yyyy');
-    const formattedTime = format(new Date(item.start_time), 'h:mm a');
+    // Safe format date with fallback
+    let formattedDate = 'Unknown date';
+    let formattedTime = 'Unknown time';
+    try {
+      if (item.start_time) {
+        formattedDate = format(new Date(item.start_time), 'MMM d, yyyy');
+        formattedTime = format(new Date(item.start_time), 'h:mm a');
+      }
+    } catch (error) {
+      console.error('Error formatting date:', error);
+    }
+    
+    // Safely extract scores with fallbacks
+    const score1 = item.final_score && Array.isArray(item.final_score) && item.final_score.length > 0 
+      ? item.final_score[0] 
+      : 0;
+    
+    const score2 = item.final_score && Array.isArray(item.final_score) && item.final_score.length > 1 
+      ? item.final_score[1] 
+      : 0;
+    
+    // Safely extract team names
+    const teams = item.teams || [];
+    const team1Name = teams.length > 0 && teams[0]?.name ? teams[0].name : 'Team 1';
+    const team2Name = teams.length > 1 && teams[1]?.name ? teams[1].name : 'Team 2';
+    
+    // Safe duration with fallback
+    const duration = item.duration_minutes || 0;
     
     return (
       <View style={styles.matchCard}>
         <View style={styles.matchHeader}>
-          <Text style={styles.matchDate}>{formattedDate}</Text>
-          <Text style={styles.matchTime}>{formattedTime}</Text>
+          <View style={styles.matchDateContainer}>
+            <Text style={styles.matchDate}>{formattedDate}</Text>
+            <Text style={styles.matchTime}>{formattedTime}</Text>
+          </View>
+          <Text style={styles.tableName}>{item.tableName || 'Unknown Table'}</Text>
         </View>
         
         <View style={styles.teamsContainer}>
           <View style={styles.teamInfo}>
-            <Text style={styles.teamName}>
-              {item.teams[0]?.name || 'Team 1'}
-            </Text>
-            <Text style={styles.teamScore}>{item.final_score[0]}</Text>
+            <Text style={styles.teamName}>{team1Name}</Text>
+            <Text style={styles.teamScore}>{score1}</Text>
           </View>
           
           <Text style={styles.vsText}>VS</Text>
           
           <View style={styles.teamInfo}>
-            <Text style={styles.teamName}>
-              {item.teams[1]?.name || 'Team 2'}
-            </Text>
-            <Text style={styles.teamScore}>{item.final_score[1]}</Text>
+            <Text style={styles.teamName}>{team2Name}</Text>
+            <Text style={styles.teamScore}>{score2}</Text>
           </View>
         </View>
         
         <View style={styles.matchFooter}>
           <Text style={styles.winnerText}>
-            Winner: <Text style={styles.winnerName}>{item.winner_team}</Text>
+            Winner: <Text style={styles.winnerName}>{item.winner_team || 'Unknown'}</Text>
           </Text>
           <Text style={styles.durationText}>
-            Duration: {item.duration_minutes} min
+            Duration: {duration} min
           </Text>
         </View>
       </View>
@@ -192,6 +388,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 12,
+    alignItems: 'center',
+  },
+  matchDateContainer: {
+    flexDirection: 'column',
   },
   matchDate: {
     fontSize: 14,
@@ -201,6 +401,15 @@ const styles = StyleSheet.create({
   matchTime: {
     fontSize: 14,
     color: '#7f8c8d',
+  },
+  tableName: {
+    fontSize: 13,
+    color: '#3498db',
+    fontWeight: '500',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#e3f2fd',
+    borderRadius: 4,
   },
   teamsContainer: {
     flexDirection: 'row',

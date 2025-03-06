@@ -3,7 +3,7 @@ import { Match } from '../types/database.types';
 import { TeamData, EnhancedMatch } from '../types/custom.types';
 
 // Start a new match
-export const startMatch = async (tableId: string, teams: TeamData[]): Promise<Match> => {
+export const startMatch = async (tableId: string, teams: TeamData[], raceTo: number = 1): Promise<Match> => {
   try {
     // Create a match name based on team names
     const matchName = `${teams[0]?.name || 'Team 1'} vs ${teams[1]?.name || 'Team 2'}`;
@@ -18,7 +18,7 @@ export const startMatch = async (tableId: string, teams: TeamData[]): Promise<Ma
         start_time: new Date().toISOString(),
         score: {
           current_score: [0, 0],
-          games_to_win: 2
+          games_to_win: raceTo // Use the provided raceTo value
         },
         metadata: {
           name: matchName,
@@ -46,15 +46,25 @@ export const startMatch = async (tableId: string, teams: TeamData[]): Promise<Ma
 };
 
 // Fetch a match by ID
-export const fetchMatch = async (matchId: string): Promise<EnhancedMatch> => {
+export const fetchMatch = async (matchId: string): Promise<EnhancedMatch | null> => {
   try {
     const { data, error } = await supabase
       .from('matches')
       .select('*')
       .eq('id', matchId)
-      .single();
+      .maybeSingle(); // Use maybeSingle instead of single to handle 0 rows gracefully
     
-    if (error) throw error;
+    // If no match is found or there's an error
+    if (error) {
+      console.error('Database error fetching match:', error);
+      throw error;
+    }
+    
+    // If no match was found (not an error, just no data)
+    if (!data) {
+      console.log(`No match found with ID: ${matchId}`);
+      return null;
+    }
     
     // Get player details for the teams
     const match = data as Match;
@@ -77,9 +87,12 @@ export const fetchMatch = async (matchId: string): Promise<EnhancedMatch> => {
         .select('*')
         .in('id', playerIds);
       
-      if (playersError) throw playersError;
+      if (playersError) {
+        console.error('Error fetching player details:', playersError);
+        // Continue without player details rather than failing completely
+      }
       
-      if (players) {
+      if (players && players.length > 0) {
         // Create a map of player IDs to player objects
         const playerMap = players.reduce((map, player) => {
           map[player.id] = player;
@@ -164,45 +177,63 @@ export const archiveMatch = async (matchId: string): Promise<void> => {
     // First, get the match details
     const match = await fetchMatch(matchId);
     
-    // Extract all player IDs from teams
-    const allPlayers = match.teams.reduce((acc: string[], team) => {
-      if (team.players && Array.isArray(team.players)) {
+    // If match is not found, it may already be archived or deleted
+    if (!match) {
+      console.log(`Match ${matchId} not found for archiving. It may already be archived.`);
+      return;
+    }
+    
+    // Extract all player IDs from teams (safely handling undefined)
+    const allPlayers = match.teams ? match.teams.reduce((acc: string[], team) => {
+      if (team && team.players && Array.isArray(team.players)) {
         acc.push(...team.players);
       }
       return acc;
-    }, []);
+    }, []) : [];
     
-    // Determine the winner based on scores
+    // Determine the winner based on scores (with safe access)
     let winnerPlayerId = null;
+    let winnerTeamName = null;
+    
     if (match.score && Array.isArray(match.score.current_score)) {
       const scores = match.score.current_score;
-      if (scores[0] > scores[1] && match.teams[0]?.players?.length > 0) {
-        // First team won, use the first player from that team
-        winnerPlayerId = match.teams[0].players[0];
-      } else if (scores[1] > scores[0] && match.teams[1]?.players?.length > 0) {
-        // Second team won, use the first player from that team
-        winnerPlayerId = match.teams[1].players[0];
+      
+      if (scores.length >= 2 && match.teams && match.teams.length > 0) {
+        if (scores[0] > scores[1] && match.teams[0]?.players?.length > 0) {
+          // First team won, use the first player from that team
+          winnerPlayerId = match.teams[0].players[0];
+          winnerTeamName = match.teams[0].name || 'Team 1';
+        } else if (scores[1] > scores[0] && match.teams.length > 1 && match.teams[1]?.players?.length > 0) {
+          // Second team won, use the first player from that team
+          winnerPlayerId = match.teams[1].players[0];
+          winnerTeamName = match.teams[1].name || 'Team 2';
+        }
       }
     }
     
-    // Create a summary of the match for archiving
+    // Create a summary of the match for archiving (with safe access)
+    // Align with the database schema which doesn't have a direct winner_team column
     const matchSummary = {
       match_id: matchId,
-      table_id: match.table_id,
+      table_id: match.table_id || null,
       players: allPlayers,
       final_score: match.score?.current_score || [0, 0],
       winner_player_id: winnerPlayerId,
-      start_time: match.start_time,
+      start_time: match.start_time || new Date().toISOString(),
       end_time: match.end_time || new Date().toISOString(),
-      duration_minutes: calculateDurationMinutes(match.start_time, match.end_time || new Date().toISOString()),
+      duration_minutes: calculateDurationMinutes(
+        match.start_time || new Date().toISOString(), 
+        match.end_time || new Date().toISOString()
+      ),
       metadata: {
-        name: match.name,
-        type: match.type,
-        teams: match.teams.map(team => ({
-          name: team.name,
-          type: team.type,
-          players: team.players
-        }))
+        name: match.name || `Match ${matchId.substring(0, 8)}`,
+        type: match.type || '8-ball',
+        winner_team: winnerTeamName, // Store winner_team in metadata instead
+        teams: match.teams && Array.isArray(match.teams) ? match.teams.map(team => ({
+          name: team?.name || 'Unknown Team',
+          type: team?.type || 'singles',
+          players: team?.players && Array.isArray(team.players) ? team.players : []
+        })) : []
       }
     };
     
@@ -220,6 +251,19 @@ export const archiveMatch = async (matchId: string): Promise<void> => {
       .eq('id', matchId);
     
     if (deleteError) throw deleteError;
+    
+    // Update table availability status - important when admin clears a match remotely
+    if (match.table_id) {
+      const { error: tableError } = await supabase
+        .from('tables')
+        .update({ is_available: true })
+        .eq('id', match.table_id);
+      
+      if (tableError) {
+        console.error('Error updating table availability:', tableError);
+        // Continue even if this fails to ensure the match gets archived
+      }
+    }
     
   } catch (error) {
     console.error('Error archiving match:', error);

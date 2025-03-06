@@ -39,6 +39,20 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
       try {
         setLoading(true);
         const matchData = await fetchMatch(matchId);
+        
+        if (!matchData) {
+          // Handle case where match doesn't exist (might have been archived or deleted)
+          Alert.alert(
+            'Match Not Found',
+            'This match may have been completed or archived. Returning to previous screen.',
+            [{ 
+              text: 'OK', 
+              onPress: () => navigation.goBack() 
+            }]
+          );
+          return;
+        }
+        
         setMatch(matchData);
         
         // Initialize score from match data
@@ -47,7 +61,9 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         }
       } catch (error) {
         console.error('Error loading match:', error);
-        Alert.alert('Error', 'Failed to load match details');
+        Alert.alert('Error', 'Failed to load match details', [
+          { text: 'Go Back', onPress: () => navigation.goBack() }
+        ]);
       } finally {
         setLoading(false);
       }
@@ -167,11 +183,15 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         
         <View style={styles.scoreboardContainer}>
           <View style={styles.teamContainer}>
-            <Text style={styles.teamName}>{homeTeam.playerDetails && homeTeam.playerDetails[0]?.name || homeTeam.name}</Text>
+            <View style={styles.teamNameContainer}>
+              <Text style={styles.teamName} numberOfLines={2} ellipsizeMode="tail">
+                {homeTeam.playerDetails && homeTeam.playerDetails[0]?.name || homeTeam.name}
+              </Text>
+            </View>
             <View style={styles.ratingContainer}>
-              <View style={[styles.teamType, { backgroundColor: '#3498db' }]}>
-                <Text style={styles.teamTypeText}>Rating: {homeTeam.playerDetails && homeTeam.playerDetails[0]?.rating || 'N/A'}</Text>
-              </View>
+              <Text style={styles.ratingText}>
+                {homeTeam.playerDetails && homeTeam.playerDetails[0]?.rating || 'N/A'}
+              </Text>
             </View>
             <Text style={styles.scoreText}>{homeScore}</Text>
             <View style={styles.scoreButtonsContainer}>
@@ -201,11 +221,15 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
           </View>
           
           <View style={styles.teamContainer}>
-            <Text style={styles.teamName}>{awayTeam.playerDetails && awayTeam.playerDetails[0]?.name || awayTeam.name}</Text>
+            <View style={styles.teamNameContainer}>
+              <Text style={styles.teamName} numberOfLines={2} ellipsizeMode="tail">
+                {awayTeam.playerDetails && awayTeam.playerDetails[0]?.name || awayTeam.name}
+              </Text>
+            </View>
             <View style={styles.ratingContainer}>
-              <View style={[styles.teamType, { backgroundColor: '#e74c3c' }]}>
-                <Text style={styles.teamTypeText}>Rating: {awayTeam.playerDetails && awayTeam.playerDetails[0]?.rating || 'N/A'}</Text>
-              </View>
+              <Text style={styles.ratingText}>
+                {awayTeam.playerDetails && awayTeam.playerDetails[0]?.rating || 'N/A'}
+              </Text>
             </View>
             <Text style={styles.scoreText}>{awayScore}</Text>
             <View style={styles.scoreButtonsContainer}>
@@ -359,26 +383,31 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     height: '100%',
   },
+  teamNameContainer: {
+    height: 60, // Fixed height for 2 lines of text
+    width: '100%',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
   teamName: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 8,
     textAlign: 'center',
+    flexWrap: 'wrap',
   },
   ratingContainer: {
-    height: 40,
+    height: 30,
     justifyContent: 'center',
     marginBottom: 16,
-  },
-  teamType: {
+    backgroundColor: '#f0f0f0',
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 16,
-    marginBottom: 16,
+    borderRadius: 15,
   },
-  teamTypeText: {
-    color: '#fff',
+  ratingText: {
+    fontSize: 16,
     fontWeight: 'bold',
+    color: '#2c3e50',
   },
   scoreText: {
     fontSize: 48,
