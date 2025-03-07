@@ -79,13 +79,13 @@ export const RulesScreen: React.FC = () => {
       rules: [
         '1. COIN TOSS OR WINNER STAYS. In most bar settings, a coin toss determines who breaks first, or the winner of the previous game breaks.',
         '2. RACKING. The 8-ball must be in the center of the rack, with a solid in one corner and a stripe in the other corner.',
-        '3. SELECTION AFTER BREAK. If a player pockets a ball on the break, they may choose to be solids or stripes, regardless of what type of ball was pocketed.',
-        '4. CALLED SHOTS. In some bar rules, players must call their shots (ball and pocket). In others, only the 8-ball shot needs to be called.',
-        '5. SCRATCH ON THE BREAK. If a player scratches on the break, the incoming player has ball-in-hand behind the head string only.',
-        '6. FOULS. Common fouls include: (a) cue ball scratch, (b) hitting the opponent\'s balls first, (c) failure to hit any ball with the cue ball, or (d) no ball hits a rail after contact.',
-        '7. BALL-IN-HAND PENALTIES. After a foul, the incoming player typically gets ball-in-hand behind the head string only, not anywhere on the table.',
-        '8. 8-BALL ON THE BREAK. If the 8-ball is pocketed on the break, some bar rules consider this a win, while others require the 8-ball to be spotted and play continues.',
-        '9. COMBINATION SHOTS. Combination shots are generally allowed, but the first ball hit must be of the shooter\'s group.',
+        '3. SELECTION AFTER BREAK. If a player pockets a ball on the break, they may choose to be solids or stripes, regardless of what type of ball was pocketed. If a stripe is pocketed, they can still elect to take solids but must make a solid on their follow-up shot.',
+        '4. POST-BREAK PLAY. After the break, the table is open. The player must make an intentional, called shot to continue their turn.',
+        '5. CALLED SHOTS. In some bar rules, players must call their shots (ball and pocket). In others, only the 8-ball shot needs to be called.',
+        '6. CAROM SHOTS. Any carom shots (where the cue ball hits multiple balls) must be called, including the intended ball and pocket.',
+        '7. SCRATCH ON THE BREAK. If a player scratches on the break, the incoming player has ball-in-hand behind the head string only.',
+        '8. FOULS. Common fouls include: (a) cue ball scratch, (b) hitting the opponent\'s balls first, (c) failure to hit any ball with the cue ball, or (d) no ball hits a rail after contact.',
+        '9. BALL-IN-HAND PENALTIES. After a foul, the incoming player typically gets ball-in-hand behind the head string only, not anywhere on the table.',
         '10. WINNING THE GAME. A player wins by legally pocketing all their assigned balls and then the 8-ball. Scratching while shooting the 8-ball is a loss.'
       ]
     }

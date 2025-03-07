@@ -56,6 +56,25 @@ export interface MatchTeam {
   type?: string;
 }
 
+// Player rating change structure
+export interface RatingChange {
+  initial: number;
+  final: number;
+}
+
+// Match metadata structure
+export interface MatchMetadata {
+  name?: string;
+  type?: string;
+  winner_team?: string;
+  teams?: {
+    name: string;
+    type?: string;
+    players: string[];
+  }[];
+  rating_changes?: Record<string, RatingChange>;
+}
+
 // Archive match structure
 export interface ArchivedMatch {
   id: string;
@@ -67,7 +86,7 @@ export interface ArchivedMatch {
   start_time: string;
   end_time: string;
   archived_at: string;
-  metadata: Record<string, any> | null;
+  metadata: MatchMetadata | null;
   duration_minutes: number | null;
   winner_team: string; // Added this to show that I have this field as well.
   teams: { name: string }[];

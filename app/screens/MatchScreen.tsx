@@ -8,12 +8,13 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Alert,
-  Modal
+  Modal,
+  Image
 } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../types/navigation.types';
-import { fetchMatch, updateMatchScore, endMatch, archiveMatch } from '../api/matches';
+import { fetchMatch, updateMatchScore, endMatch, archiveMatch, updateTeamTypes } from '../api/matches';
 import { EnhancedMatch, TeamData } from '../types/custom.types';
 import { format } from 'date-fns';
 
@@ -33,6 +34,7 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
   const [isArchiving, setIsArchiving] = useState(false);
   const [showWinnerModal, setShowWinnerModal] = useState(false);
   const [selectedWinner, setSelectedWinner] = useState<number | null>(null);
+  const [showBallTypeModal, setShowBallTypeModal] = useState(false);
   
   useEffect(() => {
     const loadMatch = async () => {
@@ -96,6 +98,34 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
     setShowWinnerModal(true);
   };
   
+  const handleAssignBallTypes = async (homeType: 'stripes' | 'solids') => {
+    if (!match) return;
+    
+    try {
+      const awayType = homeType === 'stripes' ? 'solids' : 'stripes';
+      
+      const updatedTeams: TeamData[] = [
+        { ...match.teams[0], type: homeType },
+        { ...match.teams[1], type: awayType }
+      ];
+      
+      // Update the match teams
+      await updateTeamTypes(matchId, updatedTeams);
+      
+      // Update local state
+      setMatch({
+        ...match,
+        teams: updatedTeams
+      });
+      
+      // Close the modal
+      setShowBallTypeModal(false);
+    } catch (error) {
+      console.error('Error assigning ball types:', error);
+      Alert.alert('Error', 'Failed to assign ball types');
+    }
+  };
+  
   const confirmEndMatch = async () => {
     if (selectedWinner === null) {
       Alert.alert('Error', 'Please select a winner to end the match');
@@ -126,6 +156,17 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
       setIsArchiving(true);
       try {
         await archiveMatch(matchId);
+        
+        // Show a message about rating adjustments
+        const winnerName = selectedWinner === 0 
+          ? (homeTeam.playerDetails && homeTeam.playerDetails[0]?.name || homeTeam.name)
+          : (awayTeam.playerDetails && awayTeam.playerDetails[0]?.name || awayTeam.name);
+          
+        Alert.alert(
+          'Match Complete',
+          `${winnerName} won the match! Player ratings have been adjusted: winner +5, loser -5.`,
+          [{ text: 'OK' }]
+        );
       } catch (archiveError) {
         console.error('Error archiving match:', archiveError);
         // We don't show an error to the user for this as it's not critical
@@ -193,6 +234,13 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
                 {homeTeam.playerDetails && homeTeam.playerDetails[0]?.rating || 'N/A'}
               </Text>
             </View>
+            {homeTeam.type && homeTeam.type !== 'undecided' && (
+              <View style={styles.ballTypeContainer}>
+                <Text style={styles.ballTypeText}>
+                  {homeTeam.type === 'stripes' ? 'Stripes' : 'Solids'}
+                </Text>
+              </View>
+            )}
             <Text style={styles.scoreText}>{homeScore}</Text>
             <View style={styles.scoreButtonsContainer}>
               <TouchableOpacity
@@ -231,6 +279,13 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
                 {awayTeam.playerDetails && awayTeam.playerDetails[0]?.rating || 'N/A'}
               </Text>
             </View>
+            {awayTeam.type && awayTeam.type !== 'undecided' && (
+              <View style={styles.ballTypeContainer}>
+                <Text style={styles.ballTypeText}>
+                  {awayTeam.type === 'stripes' ? 'Stripes' : 'Solids'}
+                </Text>
+              </View>
+            )}
             <Text style={styles.scoreText}>{awayScore}</Text>
             <View style={styles.scoreButtonsContainer}>
               <TouchableOpacity
@@ -258,13 +313,23 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         <Text style={styles.gameInfoText}>First to {match.score?.games_to_win || 3} games wins</Text>
         
         <View style={styles.actionsContainer}>
-          {/* Complete match buttons */}
+          {/* Set ball types button */}
           <TouchableOpacity
-            style={[styles.completeButton, { backgroundColor: '#2e86de' }]}
+            style={[styles.actionButton, { backgroundColor: '#f39c12' }]}
+            onPress={() => setShowBallTypeModal(true)}
+          >
+            <Text style={styles.actionButtonText}>
+              {(homeTeam.type && homeTeam.type !== 'undecided') ? 'Change Ball Types' : 'Set Ball Types'}
+            </Text>
+          </TouchableOpacity>
+          
+          {/* Complete match button */}
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: '#2e86de' }]}
             onPress={() => handleEndMatch()}
             disabled={isArchiving}
           >
-            <Text style={styles.completeButtonText}>
+            <Text style={styles.actionButtonText}>
               {isArchiving ? 'Ending Match...' : 'End Match'}
             </Text>
           </TouchableOpacity>
@@ -329,6 +394,60 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
                 disabled={selectedWinner === null}
               >
                 <Text style={styles.confirmButtonText}>Confirm & End Match</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Ball Type Selection Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showBallTypeModal}
+        onRequestClose={() => setShowBallTypeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Assign Ball Types</Text>
+            <Text style={styles.modalSubtitle}>
+              Select which player has stripes or solids
+            </Text>
+            
+            <View style={styles.ballTypeOptions}>
+              <View style={styles.ballTypeOptionContainer}>
+                <Text style={styles.ballTypePlayerName}>
+                  {homeTeam.playerDetails && homeTeam.playerDetails[0]?.name || homeTeam.name}
+                </Text>
+                <View style={styles.ballTypeButtonsContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.ballTypeButton,
+                      homeTeam.type === 'stripes' && styles.selectedBallTypeButton
+                    ]}
+                    onPress={() => handleAssignBallTypes('stripes')}
+                  >
+                    <Text style={styles.ballTypeButtonText}>Stripes</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.ballTypeButton,
+                      homeTeam.type === 'solids' && styles.selectedBallTypeButton
+                    ]}
+                    onPress={() => handleAssignBallTypes('solids')}
+                  >
+                    <Text style={styles.ballTypeButtonText}>Solids</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowBallTypeModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -456,17 +575,69 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 16,
   },
-  completeButton: {
+  actionButton: {
     flex: 1,
     paddingVertical: 12,
     borderRadius: 8,
     marginHorizontal: 8,
     alignItems: 'center',
   },
-  completeButtonText: {
+  actionButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  ballTypeContainer: {
+    backgroundColor: '#e3f2fd',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#3498db',
+  },
+  ballTypeText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2980b9',
+  },
+  ballTypeOptions: {
+    marginVertical: 16,
+  },
+  ballTypeOptionContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  ballTypePlayerName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 12,
+  },
+  ballTypeButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  ballTypeButton: {
+    flex: 1,
+    backgroundColor: '#f5f6fa',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginHorizontal: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#dcdde1',
+  },
+  selectedBallTypeButton: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#3498db',
+  },
+  ballTypeButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
   },
   modalOverlay: {
     flex: 1,

@@ -7,15 +7,16 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   ScrollView,
-  Alert
+  Alert,
+  Text,
+  Image,
+  TouchableOpacity,
+  SafeAreaView,
+  StatusBar
 } from 'react-native';
 import { 
   TextInput, 
-  Button, 
-  Text, 
-  Title, 
-  ActivityIndicator,
-  useTheme
+  ActivityIndicator
 } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
 import { RootStackNavigationProp } from '../../types/navigation.types';
@@ -27,7 +28,6 @@ export const LoginScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
   const { signIn } = useAuth();
   const navigation = useNavigation<RootStackNavigationProp<'Login'>>();
-  const theme = useTheme();
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -59,121 +59,175 @@ export const LoginScreen = () => {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.formContainer}>
-            <Title style={styles.title}>Pool Queue</Title>
-            <Text style={styles.subtitle}>Sign in to your account</Text>
-            
-            <TextInput
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              mode="outlined"
-              autoCapitalize="none"
-              keyboardType="email-address"
-              style={styles.input}
-            />
-            
-            <TextInput
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              mode="outlined"
-              secureTextEntry
-              style={styles.input}
-            />
-            
-            <Button
-              mode="contained"
-              onPress={handleLogin}
-              style={styles.button}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator animating={true} color={theme.colors.surface} />
-              ) : (
-                'Sign In'
-              )}
-            </Button>
-            
-            <Button
-              mode="text"
-              onPress={navigateToForgotPassword}
-              style={styles.textButton}
-            >
-              Forgot Password?
-            </Button>
-            
-            <View style={styles.registerContainer}>
-              <Text>Don't have an account? </Text>
-              <Button
-                mode="text"
-                onPress={navigateToRegister}
-                style={styles.registerButton}
-                labelStyle={styles.registerButtonLabel}
-              >
-                Sign Up
-              </Button>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f5f6fa" />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <View style={styles.headerContainer}>
+              <View style={styles.logoContainer}>
+                <Text style={styles.logo}>🎱</Text>
+              </View>
+              <Text style={styles.title}>Pool Queue</Text>
+              <Text style={styles.subtitle}>Sign in to your account</Text>
             </View>
-          </View>
-        </ScrollView>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+
+            <View style={styles.formContainer}>
+              <TextInput
+                label="Email"
+                value={email}
+                onChangeText={setEmail}
+                mode="outlined"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={styles.input}
+                outlineColor="#dcdde1"
+                activeOutlineColor="#3498db"
+              />
+              
+              <TextInput
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                mode="outlined"
+                secureTextEntry
+                style={styles.input}
+                outlineColor="#dcdde1"
+                activeOutlineColor="#3498db"
+              />
+              
+              <TouchableOpacity
+                style={styles.forgotPasswordButton}
+                onPress={navigateToForgotPassword}
+              >
+                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.button}
+                onPress={handleLogin}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator animating={true} color="#ffffff" />
+                ) : (
+                  <Text style={styles.buttonText}>Sign In</Text>
+                )}
+              </TouchableOpacity>
+              
+              <View style={styles.registerContainer}>
+                <Text style={styles.noAccountText}>Don't have an account?</Text>
+                <TouchableOpacity
+                  onPress={navigateToRegister}
+                >
+                  <Text style={styles.registerText}>Sign Up</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f5f6fa',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#fff',
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-  },
-  formContainer: {
     padding: 20,
-    width: '100%',
-    maxWidth: 400,
-    alignSelf: 'center',
+  },
+  headerContainer: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  logoContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#3498db',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  logo: {
+    fontSize: 40,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    textAlign: 'center',
+    color: '#2c3e50',
     marginBottom: 10,
   },
   subtitle: {
     fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 30,
-    opacity: 0.7,
+    color: '#7f8c8d',
+    marginBottom: 10,
+  },
+  formContainer: {
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   input: {
     marginBottom: 16,
+    backgroundColor: 'white',
+  },
+  forgotPasswordButton: {
+    alignSelf: 'flex-end',
+    marginBottom: 20,
+  },
+  forgotPasswordText: {
+    color: '#3498db',
+    fontSize: 14,
   },
   button: {
-    marginTop: 10,
-    paddingVertical: 8,
+    backgroundColor: '#3498db',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  textButton: {
-    marginTop: 8,
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
   registerContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
   },
-  registerButton: {
-    marginLeft: -8,
+  noAccountText: {
+    color: '#7f8c8d',
+    marginRight: 8,
   },
-  registerButtonLabel: {
-    marginHorizontal: 0,
+  registerText: {
+    color: '#3498db',
+    fontWeight: 'bold',
   },
 });

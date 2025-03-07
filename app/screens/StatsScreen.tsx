@@ -7,13 +7,16 @@ import {
   TouchableOpacity, 
   ActivityIndicator, 
   SafeAreaView,
-  Alert
+  Alert,
+  ScrollView
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../types/navigation.types';
 import { supabase } from '../api/supabase';
 import { format } from 'date-fns';
 import { ArchivedMatch } from '../types/custom.types';
+import { useAuth } from '../context/AuthContext';
+import { fetchPlayerRatingHistory } from '../api/matches';
 
 type StatsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Stats'>;
 
@@ -22,12 +25,84 @@ type Props = {
 };
 
 export const StatsScreen: React.FC<Props> = ({ navigation }) => {
+  const { user } = useAuth();
   const [matches, setMatches] = useState<ArchivedMatch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'matches' | 'ratings'>('matches');
+  const [ratingHistory, setRatingHistory] = useState<{
+    matchId: string;
+    date: string;
+    opponent: string | null;
+    ratingBefore: number;
+    ratingAfter: number;
+    ratingChange: number;
+    won: boolean;
+  }[]>([]);
+  const [loadingRatings, setLoadingRatings] = useState(true);
   
   useEffect(() => {
     fetchStats();
-  }, []);
+    if (user) {
+      fetchRatingHistory();
+    }
+  }, [user?.id]);
+  
+  const fetchRatingHistory = async () => {
+    if (!user) {
+      console.warn('Cannot fetch rating history: User is not logged in');
+      setLoadingRatings(false);
+      return;
+    }
+    
+    try {
+      setLoadingRatings(true);
+      
+      // First check if the player record exists for this user
+      const { data: playerData, error: playerError } = await supabase
+        .from('players')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+      
+      if (playerError || !playerData) {
+        console.log('Cannot find player record for user:', user.id);
+        
+        // Try to find player by email as fallback
+        if (user.email) {
+          const { data: playerByEmail, error: emailError } = await supabase
+            .from('players')
+            .select('id')
+            .eq('email', user.email)
+            .single();
+            
+          if (!emailError && playerByEmail) {
+            console.log('Found player by email:', playerByEmail.id);
+            const { history } = await fetchPlayerRatingHistory(playerByEmail.id);
+            setRatingHistory(history);
+            setLoadingRatings(false);
+            return;
+          }
+        }
+        
+        // If we get here, we couldn't find the player
+        console.log('No player record found for current user');
+        setRatingHistory([]);
+        setLoadingRatings(false);
+        return;
+      }
+      
+      // If we found the player record, fetch their rating history
+      console.log('Fetching rating history for player:', playerData.id);
+      const { history } = await fetchPlayerRatingHistory(playerData.id);
+      setRatingHistory(history);
+    } catch (error) {
+      console.error('Error fetching rating history:', error);
+      // Don't show alert to avoid disrupting the user experience
+      setRatingHistory([]);
+    } finally {
+      setLoadingRatings(false);
+    }
+  };
   
   const fetchStats = async () => {
     try {
@@ -304,33 +379,128 @@ export const StatsScreen: React.FC<Props> = ({ navigation }) => {
     );
   };
   
+  const renderRatingHistoryItem = ({ item }: { item: typeof ratingHistory[0] }) => {
+    // Format date
+    let formattedDate = 'Unknown date';
+    try {
+      formattedDate = format(new Date(item.date), 'MMM d, yyyy h:mm a');
+    } catch (error) {
+      console.error('Error formatting date:', error);
+    }
+    
+    // Determine style for rating change (green for positive, red for negative)
+    const isPositive = item.ratingChange > 0;
+    
+    return (
+      <View style={styles.ratingCard}>
+        <View style={styles.ratingHeader}>
+          <Text style={styles.ratingDate}>{formattedDate}</Text>
+          <Text style={[
+            styles.ratingChange, 
+            isPositive ? styles.positiveRating : styles.negativeRating
+          ]}>
+            {isPositive ? '+' : ''}{item.ratingChange}
+          </Text>
+        </View>
+        
+        <View style={styles.ratingDetails}>
+          <Text style={styles.ratingText}>
+            {item.won ? 'Won' : 'Lost'} against {item.opponent || 'Unknown'}
+          </Text>
+          <Text style={styles.ratingValues}>
+            {item.ratingBefore} → {item.ratingAfter}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+  
+  const handleRefresh = () => {
+    // Wrap these in try/catch to ensure refreshing one doesn't prevent the other
+    try {
+      fetchStats();
+    } catch (error) {
+      console.error('Error refreshing stats:', error);
+    }
+    
+    try {
+      if (user) {
+        fetchRatingHistory();
+      }
+    } catch (error) {
+      console.error('Error refreshing rating history:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.header}>Stats</Text>
       
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#0000ff" />
-        </View>
-      ) : matches.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No stats found</Text>
-          <Text style={styles.emptySubtext}>
-            Complete a match to see it in your history
+      <View style={styles.tabContainer}>
+        <TouchableOpacity 
+          style={[styles.tabButton, activeTab === 'matches' && styles.activeTabButton]}
+          onPress={() => setActiveTab('matches')}
+        >
+          <Text style={[styles.tabText, activeTab === 'matches' && styles.activeTabText]}>
+            Match History
           </Text>
-        </View>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.tabButton, activeTab === 'ratings' && styles.activeTabButton]}
+          onPress={() => setActiveTab('ratings')}
+        >
+          <Text style={[styles.tabText, activeTab === 'ratings' && styles.activeTabText]}>
+            Rating History
+          </Text>
+        </TouchableOpacity>
+      </View>
+      
+      {activeTab === 'matches' ? (
+        loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3498db" />
+          </View>
+        ) : matches.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No matches found</Text>
+            <Text style={styles.emptySubtext}>
+              Complete a match to see it in your history
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={matches}
+            renderItem={renderMatchItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+          />
+        )
       ) : (
-        <FlatList
-          data={matches}
-          renderItem={renderMatchItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-        />
+        loadingRatings ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3498db" />
+          </View>
+        ) : ratingHistory.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No rating history found</Text>
+            <Text style={styles.emptySubtext}>
+              Complete a match to see your rating changes
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={ratingHistory}
+            renderItem={renderRatingHistoryItem}
+            keyExtractor={(item, index) => `${item.matchId}-${index}`}
+            contentContainerStyle={styles.listContent}
+          />
+        )
       )}
       
       <TouchableOpacity
         style={styles.refreshButton}
-        onPress={fetchStats}
+        onPress={handleRefresh}
       >
         <Text style={styles.refreshButtonText}>Refresh</Text>
       </TouchableOpacity>
@@ -369,6 +539,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#95a5a6',
     marginTop: 8,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#ecf0f1',
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  activeTabButton: {
+    backgroundColor: '#3498db',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#7f8c8d',
+  },
+  activeTabText: {
+    color: 'white',
   },
   listContent: {
     paddingBottom: 16,
@@ -457,6 +650,52 @@ const styles = StyleSheet.create({
   durationText: {
     fontSize: 14,
     color: '#7f8c8d',
+  },
+  // Rating history styles
+  ratingCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  ratingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  ratingDate: {
+    fontSize: 14,
+    color: '#7f8c8d',
+  },
+  ratingChange: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  positiveRating: {
+    color: '#27ae60',
+  },
+  negativeRating: {
+    color: '#e74c3c',
+  },
+  ratingDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  ratingText: {
+    fontSize: 15,
+    color: '#2c3e50',
+  },
+  ratingValues: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#3498db',
   },
   refreshButton: {
     backgroundColor: '#3498db',

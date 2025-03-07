@@ -80,7 +80,9 @@ export const TableCard: React.FC<TableCardProps> = ({
       
       // First try to use playerDetails if available (from our enhanced match data)
       if (team.playerDetails && Array.isArray(team.playerDetails) && team.playerDetails.length > 0) {
-        return team.playerDetails.map((player) => player.name).join(", ");
+        return team.playerDetails.map((player) => 
+          `${player.name} (${player.rating || 1500})`
+        ).join(", ");
       }
       
       // Fallback to finding players from queue if playerDetails is not available
@@ -90,7 +92,7 @@ export const TableCard: React.FC<TableCardProps> = ({
         team.players.forEach((playerId) => {
           const queuePlayer = queue.find((p) => p.id === playerId);
           if (queuePlayer) {
-            playerNames.push(queuePlayer.player.name || 'Unknown');
+            playerNames.push(`${queuePlayer.player.name || 'Unknown'} (${queuePlayer.player.rating || 1500})`);
           }
         });
         

@@ -40,6 +40,24 @@ export const HomeScreen: React.FC = () => {
     fetchUserData();
   }, [user]);
 
+  // Add focus listener to refresh player data when screen is focused
+  useEffect(() => {
+    // Force immediate refresh on mount
+    if (user) {
+      refreshPlayerRating();
+    }
+    
+    // Set up a listener for when the screen comes into focus
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log('HomeScreen focused - refreshing player data');
+      if (user) {
+        refreshPlayerRating();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, user]);
+
   useEffect(() => {
     calculateWinRate();
   }, [playerData]);
@@ -305,6 +323,94 @@ export const HomeScreen: React.FC = () => {
     }
   };
   
+  // Add a new function to refresh player rating and ensure it's in sync with match history
+  const refreshPlayerRating = async () => {
+    if (!user) return;
+    
+    try {
+      console.log('Refreshing player rating for user:', user.id);
+      const currentUserId = user.id;
+      
+      // 1. Fetch player's current data from the database
+      const { data: playerData, error: playerError } = await supabase
+        .from('players')
+        .select('*')
+        .eq('id', currentUserId)
+        .single();
+        
+      if (playerError) {
+        console.error('Error fetching player data:', playerError);
+        return;
+      }
+      
+      console.log('Fetched player data from DB:', JSON.stringify(playerData));
+      
+      // 2. Check match archives for the latest rating
+      const { data: matchArchives, error: archiveError } = await supabase
+        .from('match_archives')
+        .select('metadata')
+        .order('end_time', { ascending: false })
+        .limit(10);
+        
+      if (archiveError) {
+        console.error('Error fetching match archives:', archiveError);
+      }
+      
+      // Look for the latest rating change for this player
+      let latestRating = playerData.rating || 1500;
+      let foundRatingUpdate = false;
+      
+      if (matchArchives && matchArchives.length > 0) {
+        console.log(`Checking ${matchArchives.length} match archives for rating updates`);
+        
+        for (const match of matchArchives) {
+          if (match.metadata && 
+              match.metadata.rating_changes && 
+              match.metadata.rating_changes[currentUserId]) {
+            
+            const ratingChange = match.metadata.rating_changes[currentUserId];
+            console.log(`Found rating change in archive: ${JSON.stringify(ratingChange)}`);
+            
+            // Use the most recent final rating
+            latestRating = ratingChange.final;
+            foundRatingUpdate = true;
+            break;
+          }
+        }
+      }
+      
+      // 3. If the latest rating from matches differs from DB, update the database
+      if (foundRatingUpdate && latestRating !== playerData.rating) {
+        console.log(`Updating player rating in DB from ${playerData.rating} to ${latestRating}`);
+        
+        // Update the database with the correct rating
+        const { error: updateError } = await supabase
+          .from('players')
+          .update({ rating: latestRating })
+          .eq('id', currentUserId);
+          
+        if (updateError) {
+          console.error('Error updating player rating in database:', updateError);
+        }
+      }
+      
+      // 4. Update the UI with the player data including correct rating
+      setPlayerData(prevData => ({
+        ...prevData,  // Keep existing calculated data
+        ...playerData, // Get latest DB fields
+        rating: latestRating, // Use the latest rating (from matches or DB)
+        // Preserve calculated stats
+        games_played: prevData?.games_played || 0,
+        games_won: prevData?.games_won || 0
+      }));
+      
+      console.log(`Player rating set to: ${latestRating}`);
+      
+    } catch (error) {
+      console.error('Error in refreshPlayerRating:', error);
+    }
+  };
+  
   const calculateWinRate = () => {
     if (!playerData) {
       setWinRate('0%');
@@ -356,6 +462,9 @@ export const HomeScreen: React.FC = () => {
             <View style={styles.profileInfo}>
               <Text style={styles.playerName}>{playerData?.name || 'New Player'}</Text>
               <Text style={styles.playerRating}>Rating: {playerData?.rating !== undefined ? playerData.rating.toString() : 'Unrated'}</Text>
+                  <TouchableOpacity onPress={refreshPlayerRating}>
+                    <Text style={styles.refreshRatingText}>⟳ Refresh</Text>
+                  </TouchableOpacity>
               <View style={styles.statsRow}>
                 <View style={styles.statItem}>
                   <Text style={styles.statValue}>{playerData?.games_played || 0}</Text>
@@ -586,6 +695,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f6fa',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || 24 : 0,
+  },
+  refreshRatingText: {
+    fontSize: 12,
+    color: '#3498db',
+    marginBottom: 8,
   },
   scrollContent: {
     padding: 16,
