@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -15,8 +15,11 @@ import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../types/navigation.types';
 import { fetchMatch, updateMatchScore, endMatch, archiveMatch, updateTeamTypes } from '../api/matches';
+import { supabase } from '../api/supabase';
 import { EnhancedMatch, TeamData } from '../types/custom.types';
 import { format } from 'date-fns';
+import { useAuth } from '../context/AuthContext';
+import { validateMatchScore, validateTeams, validateMetadata, getSafeTeam, getSafeScore } from '../utils/validationUtils';
 
 type MatchScreenRouteProp = RouteProp<RootStackParamList, 'Match'>;
 type MatchScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Match'>;
@@ -28,6 +31,7 @@ type Props = {
 
 export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
   const { matchId, tableId } = route.params;
+  const { user } = useAuth();
   const [match, setMatch] = useState<EnhancedMatch | null>(null);
   const [loading, setLoading] = useState(true);
   const [score, setScore] = useState<number[]>([0, 0]);
@@ -35,22 +39,199 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
   const [showWinnerModal, setShowWinnerModal] = useState(false);
   const [selectedWinner, setSelectedWinner] = useState<number | null>(null);
   const [showBallTypeModal, setShowBallTypeModal] = useState(false);
+  const [remoteUpdate, setRemoteUpdate] = useState<boolean>(false);
+  const [matchEnded, setMatchEnded] = useState<boolean>(false);
+  const [ratingChanges, setRatingChanges] = useState<{[key: string]: {initial: number, final: number}} | null>(null);
+  const [winnerTeamIndex, setWinnerTeamIndex] = useState<number | null>(null);
+  const subscriptionRef = useRef<any>(null);
   
+  // Set up realtime subscription for match updates
+  useEffect(() => {
+    if (!matchId) return;
+    
+    const setupSubscription = async () => {
+      console.log(`Setting up subscription for match: ${matchId}`);
+      
+      // Clear any existing subscription
+      if (subscriptionRef.current) {
+        try {
+          // Use unsubscribe instead of removeSubscription
+          subscriptionRef.current.unsubscribe();
+          console.log('Successfully unsubscribed from previous channel');
+        } catch (err) {
+          console.error('Error unsubscribing from channel:', err);
+        }
+        subscriptionRef.current = null;
+      }
+      
+      // Subscribe to changes on the matches table for this match
+      const channel = supabase
+        .channel('match-updates')
+        .on('postgres_changes', 
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: 'matches',
+            filter: `id=eq.${matchId}`
+          }, 
+          (payload: { 
+            eventType: 'INSERT' | 'UPDATE' | 'DELETE'; 
+            new: Match | null; 
+            old: Match | null;
+          }) => {
+            console.log('Match update received:', payload);
+            
+            // Handle different types of updates
+            if (payload.eventType === 'UPDATE' && payload.new) {
+              const updatedMatch = payload.new;
+              
+              // Check if the match has been completed (status changed to completed)
+              if (updatedMatch.status === 'completed' && match?.status === 'active') {
+                console.log('Match completed remotely');
+                setMatchEnded(true);
+                setRemoteUpdate(true);
+                
+                // Determine the winner based on the score
+                const scoreData = updatedMatch.score as any;
+                const finalScore = scoreData?.current_score || [0, 0];
+                const winningTeamIndex = finalScore[0] > finalScore[1] ? 0 : 1;
+                setWinnerTeamIndex(winningTeamIndex);
+                
+                // Update the score to match the server state
+                setScore(finalScore);
+                
+                // Check if there are any match archives created with rating changes for this match
+                checkForMatchArchive();
+              } 
+              // Handle score updates
+              else if (updatedMatch.score && JSON.stringify(updatedMatch.score) !== JSON.stringify(match?.score)) {
+                console.log('Score updated remotely');
+                const scoreData = updatedMatch.score as any;
+                setScore(scoreData.current_score || [0, 0]);
+                setRemoteUpdate(true);
+              }
+              // Handle team type updates (stripes/solids)
+              else if (updatedMatch.teams && JSON.stringify(updatedMatch.teams) !== JSON.stringify(match?.teams)) {
+                console.log('Teams updated remotely');
+                // Refresh match data by fetching it again
+                fetchMatch(matchId).then(updatedMatchData => {
+                  if (updatedMatchData) {
+                    setMatch(updatedMatchData);
+                  }
+                }).catch(err => {
+                  console.error('Error refreshing match after team update:', err);
+                });
+              }
+            } 
+            // Handle match deletion (usually means it was archived)
+            else if (payload.eventType === 'DELETE') {
+              console.log('Match deleted (likely archived)');
+              checkForMatchArchive();
+              setMatchEnded(true);
+              setRemoteUpdate(true);
+            }
+          }
+        )
+        .subscribe();
+      
+      subscriptionRef.current = channel;
+      console.log('New subscription established');
+    };
+    
+    setupSubscription();
+    
+    return () => {
+      if (subscriptionRef.current) {
+        console.log('Cleaning up match subscription on component unmount');
+        try {
+          subscriptionRef.current.unsubscribe();
+        } catch (err) {
+          console.error('Error cleaning up subscription:', err);
+        }
+        subscriptionRef.current = null;
+      }
+    };
+  }, [matchId, match?.status, match?.score, match?.teams]);
+  
+  // Check for match archive to get rating changes
+  const checkForMatchArchive = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('match_archives')
+        .select('metadata, winner_team')
+        .eq('match_id', matchId)
+        .single();
+      
+      if (error) {
+        console.error('Error checking match archive:', error);
+        return;
+      }
+      
+      if (data) {
+        // Use the dedicated column if available, fall back to metadata
+        const winnerTeam = data.winner_team || 
+                          (data.metadata && typeof data.metadata === 'object' ? 
+                           (data.metadata as MatchMetadata).winner_team : null);
+                           
+        // Safely validate metadata
+        const validatedMetadata = validateMetadata(data.metadata);
+        
+        // Set rating changes if available
+        if (validatedMetadata.rating_changes) {
+          setRatingChanges(validatedMetadata.rating_changes);
+          console.log('Retrieved rating changes:', validatedMetadata.rating_changes);
+        }
+        
+        // Try to find winner team index
+        if (winnerTeam && match?.teams) {
+          const validatedTeams = validateTeams(match.teams);
+          const index = validatedTeams.findIndex(team => team.name === winnerTeam);
+          if (index !== -1) {
+            setWinnerTeamIndex(index);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error in checkForMatchArchive:', err);
+    }
+  };
+
   useEffect(() => {
     const loadMatch = async () => {
       try {
         setLoading(true);
+        
+        // Validate that both matchId and tableId are provided
+        if (!matchId || !tableId) {
+          console.error('Missing required parameters:', { matchId, tableId });
+          Alert.alert(
+            'Missing Information',
+            'Unable to load the match due to missing information. Please return to the previous screen.',
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+          return;
+        }
+        
         const matchData = await fetchMatch(matchId);
         
         if (!matchData) {
           // Handle case where match doesn't exist (might have been archived or deleted)
+          checkForMatchArchive(); // Check if it was archived
           Alert.alert(
             'Match Not Found',
             'This match may have been completed or archived. Returning to previous screen.',
-            [{ 
-              text: 'OK', 
-              onPress: () => navigation.goBack() 
-            }]
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+          return;
+        }
+        
+        // Verify that the match is for the correct table
+        if (matchData.table_id !== tableId) {
+          console.warn('Table ID mismatch:', { expectedTableId: tableId, actualTableId: matchData.table_id });
+          Alert.alert(
+            'Incorrect Table',
+            'The match information does not match the table ID. Returning to previous screen.',
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
           );
           return;
         }
@@ -60,6 +241,12 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         // Initialize score from match data
         if (matchData.score && Array.isArray(matchData.score.current_score)) {
           setScore(matchData.score.current_score);
+        }
+        
+        // Check if match is already completed
+        if (matchData.status === 'completed') {
+          setMatchEnded(true);
+          checkForMatchArchive();
         }
       } catch (error) {
         console.error('Error loading match:', error);
@@ -72,7 +259,7 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
     };
     
     loadMatch();
-  }, [matchId]);
+  }, [matchId, tableId]);
   
   const handleScoreChange = async (teamIndex: number, increment: boolean) => {
     const newScore = [...score];
@@ -132,6 +319,12 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
       return;
     }
     
+    if (!match) {
+      console.error('[MatchScreen] Cannot end match: match data is missing');
+      Alert.alert('Error', 'Failed to end match - match data is missing');
+      return;
+    }
+    
     try {
       // Update the final score based on the winner
       const finalScore = [...score];
@@ -149,43 +342,93 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         setScore(finalScore);
       }
       
-      // End the match
-      await endMatch(matchId, tableId);
-      
-      // Archive the match for historical reporting
+      // End the match with the winner information
       setIsArchiving(true);
-      try {
-        await archiveMatch(matchId);
+      await endMatch(matchId, tableId, selectedWinner);
+      
+      // Get the proper team references
+      const homeTeam = match.teams[0];
+      const awayTeam = match.teams[1];
+      
+      // Show a message about the match ending
+      const winnerName = selectedWinner === 0 
+        ? (homeTeam.playerDetails && homeTeam.playerDetails[0]?.name || homeTeam.name)
+        : (awayTeam.playerDetails && awayTeam.playerDetails[0]?.name || awayTeam.name);
         
-        // Show a message about rating adjustments
-        const winnerName = selectedWinner === 0 
-          ? (homeTeam.playerDetails && homeTeam.playerDetails[0]?.name || homeTeam.name)
-          : (awayTeam.playerDetails && awayTeam.playerDetails[0]?.name || awayTeam.name);
-          
-        Alert.alert(
-          'Match Complete',
-          `${winnerName} won the match! Player ratings have been adjusted: winner +5, loser -5.`,
-          [{ text: 'OK' }]
-        );
-      } catch (archiveError) {
-        console.error('Error archiving match:', archiveError);
-        // We don't show an error to the user for this as it's not critical
-      } finally {
-        setIsArchiving(false);
-      }
+      Alert.alert(
+        'Match Complete',
+        `${winnerName} won the match!`,
+        [{ text: 'OK' }]
+      );
       
       // Close the modal
       setShowWinnerModal(false);
       
-      // Navigate back to the venue screen
-      navigation.navigate('MainTabs');
+      // Set a flag in navigation params to trigger a refresh
+      navigation.navigate('MainTabs', {
+        screen: 'Matches',
+        params: {
+          refresh: true,
+          timestamp: Date.now() // Add timestamp to force refresh
+        }
+      });
     } catch (error) {
-      console.error('Error ending match:', error);
+      console.error('[MatchScreen] Error ending match:', error);
       Alert.alert('Error', 'Failed to end match');
+    } finally {
+      setIsArchiving(false);
     }
   };
   
-  if (loading || !match) {
+  // Effect for handling remote match completion
+  useEffect(() => {
+    if (remoteUpdate && matchEnded && !showWinnerModal) {
+      console.log('Handling remote match completion');
+      
+      // Calculate and display rating changes for current user
+      let message = 'This match has been completed by the other player.';
+      let userRatingChange = null;
+      
+      if (ratingChanges && user?.id && ratingChanges[user.id]) {
+        const change = ratingChanges[user.id];
+        const difference = change.final - change.initial;
+        const sign = difference >= 0 ? '+' : '';
+        userRatingChange = `${sign}${difference}`;
+        
+        message += `\n\nYour rating has changed from ${change.initial} to ${change.final} (${userRatingChange}).`;
+      }
+      
+      // Add winner announcement if available
+      if (winnerTeamIndex !== null && match?.teams) {
+        const winnerTeam = match.teams[winnerTeamIndex];
+        const winnerName = (winnerTeam.playerDetails && winnerTeam.playerDetails[0]?.name) || winnerTeam.name;
+        message = `${winnerName} won the match!\n\n${message}`;
+      }
+      
+      Alert.alert(
+        'Match Completed',
+        message,
+        [{ 
+          text: 'OK', 
+          onPress: () => {
+            // Navigate back to venue screen with refresh parameter
+            navigation.navigate('MainTabs', {
+              screen: 'Matches',
+              params: {
+                refresh: true,
+                timestamp: Date.now()
+              }
+            });
+          }
+        }]
+      );
+      
+      // Reset flag to prevent multiple alerts
+      setRemoteUpdate(false);
+    }
+  }, [remoteUpdate, matchEnded, ratingChanges, user?.id, winnerTeamIndex, match?.teams]);
+
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#0000ff" />
@@ -193,12 +436,28 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
     );
   }
   
-  const homeTeam = match.teams[0] as TeamData;
-  const awayTeam = match.teams[1] as TeamData;
+  if (!match) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>
+          Match not found. It may have been completed or deleted.
+        </Text>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.backButtonText}>Return to Previous Screen</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  
+  // Get safe team data
+  const homeTeam = getSafeTeam(match, 0);
+  const awayTeam = getSafeTeam(match, 1);
   
   // Get team names and score
-  const homeScore = score[0];
-  const awayScore = score[1];
+  const [homeScore, awayScore] = score;
   
   // Format the match start time
   const formattedStartTime = match.start_time
@@ -206,7 +465,9 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
     : '';
   
   const isGamePoint = (teamIndex: number) => {
-    const gamesToWin = match.score?.games_to_win || 2;
+    // Use safely validated match score
+    const validatedScore = match ? validateMatchScore(match.score) : { current_score: [0, 0], games_to_win: 3 };
+    const gamesToWin = validatedScore.games_to_win;
     return score[teamIndex] === gamesToWin;
   };
   
@@ -246,18 +507,22 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.scoreButton,
-                  isGamePoint(0) && styles.gamePointButton
+                  isGamePoint(0) && styles.gamePointButton,
+                  (matchEnded || remoteUpdate) && styles.disabledButton
                 ]}
                 onPress={() => handleScoreChange(0, true)}
+                disabled={matchEnded || remoteUpdate}
               >
                 <Text style={styles.scoreButtonText}>+1</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.scoreButton,
-                  isGamePoint(0) && styles.gamePointButton
+                  isGamePoint(0) && styles.gamePointButton,
+                  (matchEnded || remoteUpdate) && styles.disabledButton
                 ]}
                 onPress={() => handleScoreChange(0, false)}
+                disabled={matchEnded || remoteUpdate}
               >
                 <Text style={styles.scoreButtonText}>-1</Text>
               </TouchableOpacity>
@@ -291,18 +556,22 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.scoreButton,
-                  isGamePoint(1) && styles.gamePointButton
+                  isGamePoint(1) && styles.gamePointButton,
+                  (matchEnded || remoteUpdate) && styles.disabledButton
                 ]}
                 onPress={() => handleScoreChange(1, true)}
+                disabled={matchEnded || remoteUpdate}
               >
                 <Text style={styles.scoreButtonText}>+1</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
                   styles.scoreButton,
-                  isGamePoint(1) && styles.gamePointButton
+                  isGamePoint(1) && styles.gamePointButton,
+                  (matchEnded || remoteUpdate) && styles.disabledButton
                 ]}
                 onPress={() => handleScoreChange(1, false)}
+                disabled={matchEnded || remoteUpdate}
               >
                 <Text style={styles.scoreButtonText}>-1</Text>
               </TouchableOpacity>
@@ -315,8 +584,13 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         <View style={styles.actionsContainer}>
           {/* Set ball types button */}
           <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: '#f39c12' }]}
+            style={[
+              styles.actionButton, 
+              { backgroundColor: '#f39c12' },
+              (matchEnded || remoteUpdate) && styles.disabledActionButton
+            ]}
             onPress={() => setShowBallTypeModal(true)}
+            disabled={matchEnded || remoteUpdate || isArchiving}
           >
             <Text style={styles.actionButtonText}>
               {(homeTeam.type && homeTeam.type !== 'undecided') ? 'Change Ball Types' : 'Set Ball Types'}
@@ -325,15 +599,28 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
           
           {/* Complete match button */}
           <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: '#2e86de' }]}
+            style={[
+              styles.actionButton, 
+              { backgroundColor: '#2e86de' },
+              (matchEnded || remoteUpdate || isArchiving) && styles.disabledActionButton
+            ]}
             onPress={() => handleEndMatch()}
-            disabled={isArchiving}
+            disabled={matchEnded || remoteUpdate || isArchiving}
           >
             <Text style={styles.actionButtonText}>
-              {isArchiving ? 'Ending Match...' : 'End Match'}
+              {matchEnded ? 'Match Ended' : isArchiving ? 'Ending Match...' : 'End Match'}
             </Text>
           </TouchableOpacity>
         </View>
+        
+        {/* Remote match ended banner */}
+        {matchEnded && (
+          <View style={styles.matchEndedBanner}>
+            <Text style={styles.matchEndedText}>
+              This match has been completed. You'll be redirected to the venue screen.
+            </Text>
+          </View>
+        )}
       </ScrollView>
       
       {/* Winner Selection Modal */}
@@ -469,6 +756,39 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#e74c3c',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    backgroundColor: '#3498db',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  backButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  matchEndedBanner: {
+    backgroundColor: '#e74c3c',
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  matchEndedText: {
+    color: 'white',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  disabledActionButton: {
+    backgroundColor: '#bdc3c7',
+    opacity: 0.7,
   },
   header: {
     alignItems: 'center',

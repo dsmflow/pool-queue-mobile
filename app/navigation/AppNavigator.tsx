@@ -11,6 +11,7 @@ import { supabase } from '../api/supabase';
 import { RootStackParamList } from '../types/navigation.types'; // Import the type
 import { useAuth } from '../context/AuthContext';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { QueueScreen } from '../screens/QueueScreen';
 
 const Stack = createStackNavigator<RootStackParamList>(); // Correct type parameter
 
@@ -76,6 +77,11 @@ export const AppNavigator = () => {
         name="Match"
         component={MatchScreen}
         options={{ title: 'Match Details' }}
+      />
+      <Stack.Screen
+        name="Queue"
+        component={QueueScreen}
+        options={{ title: 'Table Queue' }}
       />
       <Stack.Screen
         name="Players"

@@ -11,7 +11,7 @@ import {
   StatusBar,
   Platform 
 } from 'react-native';
-import { useNavigation, CompositeNavigationProp, CommonActions } from '@react-navigation/native';
+import { useNavigation, CompositeNavigationProp, CommonActions, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList, MainTabParamList } from '../types/navigation.types';
 import { supabase } from '../api/supabase';
@@ -20,6 +20,9 @@ import { Player } from '../types/database.types';
 import { ExtendedPlayerProfile, ArchivedMatch } from '../types/custom.types';
 import { fetchLastPlayedVenue } from '../api/venues';
 import { VenueCard } from '../components/VenueCard';
+import { ActiveMatchBanner } from '../components/ActiveMatchBanner';
+import { TurnNotificationBanner } from '../components/TurnNotificationBanner';
+import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
 
 type HomeScreenNavigationProp = CompositeNavigationProp<
@@ -29,12 +32,16 @@ type HomeScreenNavigationProp = CompositeNavigationProp<
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
+  const route = useRoute<any>();
   const { user, isAdmin } = useAuth(); // Get authenticated user and admin status from context
   const [loading, setLoading] = useState(true);
   const [playerData, setPlayerData] = useState<ExtendedPlayerProfile | null>(null);
   const [recentMatches, setRecentMatches] = useState<any[]>([]);
   const [lastVenue, setLastVenue] = useState<any>(null);
   const [winRate, setWinRate] = useState<string>('0%');
+  
+  // Check for refresh parameter from navigation
+  const shouldRefresh = route.params?.refresh === true;
   
   useEffect(() => {
     fetchUserData();
@@ -57,6 +64,17 @@ export const HomeScreen: React.FC = () => {
 
     return unsubscribe;
   }, [navigation, user]);
+  
+  // Handle refresh parameter from navigation
+  useEffect(() => {
+    if (shouldRefresh) {
+      console.log('HomeScreen received refresh parameter - refreshing data');
+      fetchUserData();
+      
+      // Clear the refresh parameter to prevent continuous refreshing
+      navigation.setParams({ refresh: undefined });
+    }
+  }, [shouldRefresh, navigation]);
 
   useEffect(() => {
     calculateWinRate();
@@ -440,6 +458,8 @@ export const HomeScreen: React.FC = () => {
   return (
     <View style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#f5f6fa" />
+      <ActiveMatchBanner />
+      <TurnNotificationBanner />
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Player Profile Card */}
         <View style={styles.profileCard}>

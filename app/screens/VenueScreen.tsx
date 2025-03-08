@@ -19,6 +19,7 @@ import { RootStackParamList, MainTabRouteProp } from '../types/navigation.types'
 import { addToQueue, fetchPlayers } from '../api/tables';
 import { Player } from '../types/database.types';
 import { PlayerSelector } from '../components/PlayerSelector';
+import { ActiveMatchBanner } from '../components/ActiveMatchBanner';
 
 type MatchesScreenProps = {
   route: MainTabRouteProp<'Matches'>;
@@ -32,7 +33,7 @@ type Table = {
 };
 
 export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
-  const { venueId } = route.params;
+  const { venueId, refresh, timestamp } = route.params;
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   
   const [venue, setVenue] = useState<{ name: string } | null>(null);
@@ -99,26 +100,93 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
   
   useEffect(() => {
     fetchVenueData();
-  }, [venueId]);
+  }, [venueId, refresh, timestamp]);
+  
+  // Add a focus listener to refetch data when screen comes into focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log('VenueScreen focused - refreshing table data');
+      fetchVenueData();
+    });
+    
+    return unsubscribe;
+  }, [navigation]);
   
   const handleRefresh = () => {
     setRefreshing(true);
     fetchVenueData();
   };
   
-  const handleTablePress = (tableId: string, isAvailable: boolean, joinQueue: boolean = false) => {
-    if (isAvailable) {
-      // Navigate to match setup if table is available
-      navigation.navigate('MatchSetup', { tableId });
-    } else if (joinQueue) {
-      // Open player selector modal for joining queue
-      setSelectedTableId(tableId);
-      setShowPlayerSelector(true);
-    } else {
-      // Navigate to active match if table is in use
-      // You would need to fetch the active match ID for this table
-      // For now, we'll just show a message
-      console.log('Table is in use');
+  const handleTablePress = async (tableId: string, isAvailable: boolean, joinQueue: boolean = false) => {
+    // Always check the current table status from the server
+    // This ensures we're working with the latest table availability
+    try {
+      // Get the current status of the table from the server
+      const { data: tableData, error: tableError } = await supabase
+        .from('tables')
+        .select('is_available')
+        .eq('id', tableId)
+        .single();
+        
+      if (tableError) {
+        console.error('Error fetching current table status:', tableError);
+        // Continue with cached data
+      } else if (tableData) {
+        // Update local state if server status differs
+        if (tableData.is_available !== isAvailable) {
+          console.log(`Table ${tableId} status mismatch - UI: ${isAvailable}, Server: ${tableData.is_available}`);
+          isAvailable = tableData.is_available;
+          
+          // Update the table in our local state
+          setTables(prevTables => 
+            prevTables.map(table => 
+              table.id === tableId ? { ...table, is_available: tableData.is_available } : table
+            )
+          );
+        }
+      }
+      
+      // Now use the verified availability status
+      if (isAvailable) {
+        // Navigate to match setup if table is available
+        navigation.navigate('MatchSetup', { tableId });
+      } else if (joinQueue) {
+        // Navigate to the dedicated queue screen for this table
+        navigation.navigate('Queue', { tableId });
+      } else {
+        // Check for active match on this table
+        const { data, error } = await supabase
+          .from('matches')
+          .select('id')
+          .eq('table_id', tableId)
+          .eq('status', 'active')
+          .single();
+        
+        if (error && error.code !== 'PGRST116') { // Not PGRST116 (record not found)
+          throw error;
+        }
+        
+        if (data && data.id) {
+          // Navigate to the active match
+          navigation.navigate('Match', { matchId: data.id, tableId });
+        } else {
+          // No active match but table shows as unavailable - data inconsistency
+          Alert.alert(
+            'Table Status Issue',
+            'This table appears to be unavailable, but no active match was found. The table status will be refreshed.',
+            [{ 
+              text: 'OK',
+              onPress: () => {
+                // Force refresh data
+                fetchVenueData();
+              }
+            }]
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error handling table press:', error);
+      Alert.alert('Error', 'Could not process this action. Please try again.');
     }
   };
   
@@ -147,6 +215,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
   
   return (
     <SafeAreaView style={styles.container}>
+      <ActiveMatchBanner />
       <View style={styles.header}>
         <Text style={styles.venueName}>{venue?.name || 'Venue'}</Text>
         <TouchableOpacity 

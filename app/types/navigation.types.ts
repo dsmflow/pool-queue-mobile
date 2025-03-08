@@ -13,7 +13,11 @@ export type AuthStackParamList = {
 // --- Main Tab Navigator ---
 export type MainTabParamList = {
   Home: undefined;
-  Matches: { venueId: string };
+  Matches: { 
+    venueId: string; 
+    refresh?: boolean;
+    timestamp?: number;
+  };
   Rules: undefined;
   Profile: undefined;
   Match: { matchId: string; tableId: string };
@@ -21,9 +25,11 @@ export type MainTabParamList = {
 
 // --- Root Stack ---
 export type RootStackParamList = {
-  MainTabs: undefined; // Represents the entire tab navigator
-  MatchSetup: { tableId: string };
-  Match: { matchId: string; tableId: string };
+  MainTabs: undefined | { screen: string; params?: any }; // Represents the entire tab navigator
+  Home: { refresh?: boolean; timestamp?: number }; // Home tab with refresh capability
+  MatchSetup: { tableId: string; playerId?: string; timestamp?: number };
+  Match: { matchId: string; tableId: string; timestamp?: number };
+  Queue: { tableId: string; timestamp?: number };
   Players: undefined;
   PlayerDetailsScreen: { playerId: string }; // Keep this, as it's defined
   Stats: undefined;

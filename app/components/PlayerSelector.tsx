@@ -5,7 +5,8 @@ import {
   StyleSheet, 
   FlatList, 
   TouchableOpacity,
-  Modal
+  Modal,
+  ActivityIndicator
 } from 'react-native';
 import { Player } from '../types/database.types';
 
@@ -14,13 +15,15 @@ interface PlayerSelectorProps {
   players: Player[];
   onSelect: (playerId: string) => void;
   onClose: () => void;
+  loading?: boolean;
 }
 
 export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
   visible,
   players,
   onSelect,
-  onClose
+  onClose,
+  loading = false
 }) => {
   return (
     <Modal
@@ -32,27 +35,37 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>Select Player</Text>
-          <FlatList
-            data={players}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.playerItem}
-                onPress={() => onSelect(item.id)}
-              >
-                <Text style={styles.playerName}>{item.name}</Text>
-                <Text style={styles.playerRating}>Rating: {item.rating}</Text>
-              </TouchableOpacity>
-            )}
-            keyExtractor={(item) => item.id}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No players found</Text>
-            }
-          />
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#3498db" />
+              <Text style={styles.loadingText}>Joining queue...</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={players}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.playerItem}
+                  onPress={() => onSelect(item.id)}
+                  disabled={loading}
+                >
+                  <Text style={styles.playerName}>{item.name}</Text>
+                  <Text style={styles.playerRating}>Rating: {item.rating}</Text>
+                </TouchableOpacity>
+              )}
+              keyExtractor={(item) => item.id}
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>No players found</Text>
+              }
+            />
+          )}
+          
           <TouchableOpacity
-            style={styles.closeButton}
+            style={[styles.closeButton, loading && styles.disabledButton]}
             onPress={onClose}
+            disabled={loading}
           >
-            <Text style={styles.closeButtonText}>Cancel</Text>
+            <Text style={styles.closeButtonText}>{loading ? 'Please wait...' : 'Cancel'}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -111,8 +124,23 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
+  disabledButton: {
+    backgroundColor: '#95a5a6',
+  },
   closeButtonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 150,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#7f8c8d',
+    textAlign: 'center',
   },
 });

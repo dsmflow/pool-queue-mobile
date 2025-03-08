@@ -24,8 +24,20 @@ export interface PlayerWithDetails {
   player_id: string;
   position: number;
   skipped: boolean;
+  notified: boolean; // Add this field
   created_at: string;
   player: Player;
+}
+
+// Notification type
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: string;
+  message: string;
+  read: boolean;
+  metadata: any;
+  created_at: string;
 }
 
 // Table details response
@@ -40,6 +52,7 @@ export interface TableWithDetails {
   };
   match: EnhancedMatch | null;
   queue: PlayerWithDetails[];
+  staleData?: boolean; // Flag to indicate potentially unreliable data from subscription
 }
 
 // Extended player profile with statistics
@@ -67,6 +80,8 @@ export interface MatchMetadata {
   name?: string;
   type?: string;
   winner_team?: string;
+  loser_team?: string; // Add this field
+  winner_team_index?: number; // Add this field
   teams?: {
     name: string;
     type?: string;

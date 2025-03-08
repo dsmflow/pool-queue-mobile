@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -38,8 +38,14 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
   const [tables, setTables] = useState<Table[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const refreshTimestampRef = useRef<number>(Date.now());
 
   const fetchVenueData = async () => {
+    // Update refresh timestamp to ensure we're loading fresh data
+    refreshTimestampRef.current = Date.now();
+    const currentRefreshId = refreshTimestampRef.current;
+    
+    console.log(`[MatchesScreen] Fetching venue data for venue: ${venueId}, refreshId: ${currentRefreshId}`);
     try {
       // Fetch venue details
       const { data: venueData, error: venueError } = await supabase
@@ -48,7 +54,14 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
         .eq('id', venueId)
         .single();
       
+      // Make sure we're not processing stale data if there were multiple refreshes
+      if (currentRefreshId !== refreshTimestampRef.current) {
+        console.log(`[MatchesScreen] Refresh superseded, discarding results`);
+        return;
+      }
+      
       if (venueError) throw venueError;
+      console.log(`[MatchesScreen] Venue data fetched: ${venueData?.name}`);
       setVenue(venueData);
       
       // Fetch tables for this venue
@@ -58,10 +71,17 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
         .eq('venue_id', venueId)
         .order('name');
       
+      // Check again for stale data
+      if (currentRefreshId !== refreshTimestampRef.current) {
+        console.log(`[MatchesScreen] Refresh superseded, discarding table results`);
+        return;
+      }
+      
       if (tablesError) throw tablesError;
+      console.log(`[MatchesScreen] Fetched ${tablesData?.length || 0} tables for venue ${venueId}`);
       setTables(tablesData as Table[]);
     } catch (error) {
-      console.error('Error fetching venue data:', error);
+      console.error(`[MatchesScreen] Error fetching venue data for venue ${venueId}:`, error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -72,20 +92,49 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
     fetchVenueData();
   }, [venueId]);
   
+  // Check for refresh parameter in route.params and refresh data if needed
+  useEffect(() => {
+    // If the route has a refresh parameter, refresh the data
+    if (route.params?.refresh) {
+      console.log(`[MatchesScreen] Refresh parameter detected, refreshing data (timestamp: ${route.params?.timestamp || 'none'})`);
+      setRefreshing(true);
+      fetchVenueData();
+    }
+  }, [route.params?.refresh, route.params?.timestamp]);
+
   const handleRefresh = () => {
+    console.log(`[MatchesScreen] Manual refresh requested`);
     setRefreshing(true);
     fetchVenueData();
   };
   
-  const handleTablePress = (tableId: string, isAvailable: boolean) => {
+  const handleTablePress = (tableId: string, isAvailable: boolean, joinQueue: boolean = false) => {
+    console.log(`[MatchesScreen] Table pressed - tableId: ${tableId}, isAvailable: ${isAvailable}, joinQueue: ${joinQueue}`);
+    
     if (isAvailable) {
       // Navigate to match setup if table is available
-      navigation.navigate('MatchSetup', { tableId });
+      console.log(`[MatchesScreen] Table available, navigating to match setup`);
+      navigation.navigate('MatchSetup', { 
+        tableId,
+        timestamp: Date.now() // Force fresh navigation
+      });
+    } else if (joinQueue) {
+      // Navigate to queue screen if user wants to join the queue
+      console.log(`[MatchesScreen] Join queue requested, navigating to queue screen`);
+      navigation.navigate('Queue', { 
+        tableId,
+        timestamp: Date.now() // Force fresh navigation
+      });
     } else {
       // Navigate to active match if table is in use
-      // You would need to fetch the active match ID for this table
-      // For now, we'll just show a message
-      console.log('Table is in use');
+      console.log(`[MatchesScreen] Navigating to match details screen`);
+      
+      // Need to find the active match for this table
+      // For now, navigate to Queue screen which will show match details
+      navigation.navigate('Queue', { 
+        tableId,
+        timestamp: Date.now() // Force fresh navigation
+      });
     }
   };
   
@@ -114,7 +163,7 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
         renderItem={({ item }) => (
           <TableCard
             table={item}
-            onPress={() => handleTablePress(item.id, item.is_available)}
+            onPress={handleTablePress}
           />
         )}
         keyExtractor={(item) => item.id}

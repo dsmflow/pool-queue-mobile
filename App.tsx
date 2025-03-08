@@ -2,6 +2,7 @@ import React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider as PaperProvider } from 'react-native-paper';
 import { AuthProvider } from './app/context/AuthContext';
+import { NotificationProvider } from './app/context/NotificationContext';
 import { RootNavigator } from './app/navigation/RootNavigator';
 
 export default function App() {
@@ -9,7 +10,9 @@ export default function App() {
     <SafeAreaProvider>
       <PaperProvider>
         <AuthProvider>
-          <RootNavigator />
+          <NotificationProvider>
+            <RootNavigator />
+          </NotificationProvider>
         </AuthProvider>
       </PaperProvider>
     </SafeAreaProvider>

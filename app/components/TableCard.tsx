@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { subscribeToTableWithDetails, fetchTableWithDetails, removeFromQueue, toggleSkipStatus } from '../api/tables';
 import { Table, Match } from '../types/database.types';
@@ -18,16 +18,20 @@ export const TableCard: React.FC<TableCardProps> = ({
   const [match, setMatch] = useState<EnhancedMatch | null>(null);
   const [queue, setQueue] = useState<PlayerWithDetails[]>([]);
 
+  // Use a ref to store subscription for proper cleanup
+  const subscriptionRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     // Initial data fetch
     const loadData = async () => {
       try {
         setLoading(true);
+        console.log(`[TableCard] Fetching initial data for table: ${table.id}`);
         const data = await fetchTableWithDetails(table.id);
         setMatch(data.match);
         setQueue(data.queue);
       } catch (error) {
-        console.error('Error loading table data:', error);
+        console.error(`[TableCard] Error loading table data for table ${table.id}:`, error);
       } finally {
         setLoading(false);
       }
@@ -35,17 +39,43 @@ export const TableCard: React.FC<TableCardProps> = ({
 
     loadData();
 
+    // Clean up any existing subscription before creating a new one
+    if (subscriptionRef.current) {
+      try {
+        console.log(`[TableCard] Cleaning up previous subscription for table: ${table.id}`);
+        subscriptionRef.current();
+        subscriptionRef.current = null;
+      } catch (err) {
+        console.error(`[TableCard] Error cleaning up previous subscription for table ${table.id}:`, err);
+      }
+    }
+
     // Subscribe to real-time updates
+    console.log(`[TableCard] Setting up new subscription for table: ${table.id}`);
     const unsubscribe = subscribeToTableWithDetails(
       table.id,
       (data) => {
+        console.log(`[TableCard] Received update for table: ${table.id}`);
         setMatch(data.match);
         setQueue(data.queue);
       }
     );
 
-    // Cleanup subscriptions
-    return unsubscribe;
+    // Store the unsubscribe function in the ref
+    subscriptionRef.current = unsubscribe;
+
+    // Cleanup subscription on unmount or when table.id changes
+    return () => {
+      if (subscriptionRef.current) {
+        try {
+          console.log(`[TableCard] Cleaning up subscription on unmount for table: ${table.id}`);
+          subscriptionRef.current();
+          subscriptionRef.current = null;
+        } catch (err) {
+          console.error(`[TableCard] Error during subscription cleanup for table ${table.id}:`, err);
+        }
+      }
+    };
   }, [table.id]);
 
   if (loading) {

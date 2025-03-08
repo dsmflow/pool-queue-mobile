@@ -6,6 +6,8 @@ import { MatchesScreen } from '../screens/MatchesScreen';
 import { RulesScreen } from '../screens/RulesScreen';
 import { MainTabParamList } from '../types/navigation.types';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { NotificationsScreen } from '../screens/NotificationsScreen';
+import { useNotifications } from '../context/NotificationContext';
 
 // You can replace these with actual icons
 const HomeIcon = ({ color }: { color: string }) => (
@@ -19,6 +21,28 @@ const MatchesIcon = ({ color }: { color: string }) => (
     <Text style={styles.iconText}>🎱</Text>
   </View>
 );
+
+const NotificationsIcon = ({ color }: { color: string }) => {
+  const { unreadCount, hasQueueTurnNotification } = useNotifications();
+  
+  return (
+    <View>
+      <View style={[styles.iconContainer, { backgroundColor: color }]}>
+        <Text style={styles.iconText}>🔔</Text>
+      </View>
+      {unreadCount > 0 && (
+        <View style={[
+          styles.badge, 
+          hasQueueTurnNotification ? styles.importantBadge : null
+        ]}>
+          <Text style={styles.badgeText}>
+            {unreadCount <= 99 ? unreadCount : '99+'}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+};
 
 const RulesIcon = ({ color }: { color: string }) => (
   <View style={[styles.iconContainer, { backgroundColor: color }]}>
@@ -73,6 +97,14 @@ export const TabNavigator: React.FC<TabNavigatorProps> = ({ defaultVenueId }) =>
         }}
       />
       <Tab.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{
+          tabBarLabel: 'Alerts',
+          tabBarIcon: ({ color }) => <NotificationsIcon color={color} />,
+        }}
+      />
+      <Tab.Screen
         name="Rules"
         component={RulesScreen}
         options={{
@@ -102,5 +134,27 @@ const styles = StyleSheet.create({
   },
   iconText: {
     fontSize: 16,
+  },
+  badge: {
+    position: 'absolute',
+    right: -6,
+    top: -3,
+    backgroundColor: '#e74c3c',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'white',
+  },
+  importantBadge: {
+    backgroundColor: '#27ae60',
+  },
+  badgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+    paddingHorizontal: 4,
   },
 });
