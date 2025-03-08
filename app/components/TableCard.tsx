@@ -28,12 +28,42 @@ export const TableCard: React.FC<TableCardProps> = ({
         setLoading(true);
         console.log(`[TableCard] Fetching initial data for table: ${table.id}`);
         const data = await fetchTableWithDetails(table.id);
+        
+        // Add some detailed logging to help debug the issue
+        if (data.match) {
+          console.log(`[TableCard] Match found for table ${table.id}:`, {
+            matchId: data.match.id,
+            teams: data.match.teams?.length || 0,
+            status: data.match.status
+          });
+        } else {
+          console.log(`[TableCard] No active match for table ${table.id}`);
+        }
+        
+        if (data.queue?.length > 0) {
+          console.log(`[TableCard] Queue found for table ${table.id}: ${data.queue.length} entries`);
+        }
+        
         setMatch(data.match);
         setQueue(data.queue);
       } catch (error) {
         console.error(`[TableCard] Error loading table data for table ${table.id}:`, error);
+        // Try again once after a short delay in case of network issues
+        setTimeout(() => {
+          fetchTableWithDetails(table.id)
+            .then(data => {
+              console.log(`[TableCard] Retry successful for table ${table.id}`);
+              setMatch(data.match);
+              setQueue(data.queue);
+            })
+            .catch(retryErr => {
+              console.error(`[TableCard] Retry also failed for table ${table.id}:`, retryErr);
+            })
+            .finally(() => setLoading(false));
+        }, 2000);
       } finally {
-        setLoading(false);
+        // Only set loading to false if we didn't need to retry
+        if (loading) setLoading(false);
       }
     };
 
@@ -52,17 +82,50 @@ export const TableCard: React.FC<TableCardProps> = ({
 
     // Subscribe to real-time updates
     console.log(`[TableCard] Setting up new subscription for table: ${table.id}`);
-    const unsubscribe = subscribeToTableWithDetails(
-      table.id,
-      (data) => {
-        console.log(`[TableCard] Received update for table: ${table.id}`);
-        setMatch(data.match);
-        setQueue(data.queue);
-      }
-    );
+    try {
+      const unsubscribe = subscribeToTableWithDetails(
+        table.id,
+        (data) => {
+          console.log(`[TableCard] Received update for table: ${table.id}`);
+          
+          // Log details about what changed
+          if (match?.id !== data.match?.id) {
+            if (data.match) {
+              console.log(`[TableCard] New match detected on table ${table.id}: ${data.match.id}`);
+            } else if (match) {
+              console.log(`[TableCard] Match removed from table ${table.id} (was: ${match.id})`);
+            }
+          }
+          
+          if (data.queue?.length !== queue.length) {
+            console.log(`[TableCard] Queue changed for table ${table.id}: now ${data.queue?.length || 0} entries`);
+          }
+          
+          setMatch(data.match);
+          setQueue(data.queue);
+        }
+      );
 
-    // Store the unsubscribe function in the ref
-    subscriptionRef.current = unsubscribe;
+      // Store the unsubscribe function in the ref
+      subscriptionRef.current = unsubscribe;
+    } catch (err) {
+      console.error(`[TableCard] Error setting up subscription for table ${table.id}:`, err);
+      // If subscription fails, set up a simple polling fallback
+      const pollingInterval = setInterval(() => {
+        console.log(`[TableCard] Polling for updates on table ${table.id}`);
+        fetchTableWithDetails(table.id)
+          .then(data => {
+            setMatch(data.match);
+            setQueue(data.queue);
+          })
+          .catch(fetchErr => {
+            console.error(`[TableCard] Error polling for table ${table.id}:`, fetchErr);
+          });
+      }, 5000); // Poll every 5 seconds
+      
+      // Store a function to clear the interval as our "unsubscribe"
+      subscriptionRef.current = () => clearInterval(pollingInterval);
+    }
 
     // Cleanup subscription on unmount or when table.id changes
     return () => {

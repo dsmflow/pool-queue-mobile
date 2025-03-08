@@ -432,7 +432,7 @@ export const archiveMatch = async (matchId: string): Promise<void> => {
     const endTime = match.end_time || new Date().toISOString();
     const durationMinutes = calculateDurationMinutes(startTime, endTime);
     
-    // Create the match summary with validated data
+    // Create the match summary with validated data - all fields must match the database schema
     const matchSummary = {
       match_id: matchId,
       table_id: match.table_id,
@@ -442,32 +442,83 @@ export const archiveMatch = async (matchId: string): Promise<void> => {
       start_time: startTime,
       end_time: endTime,
       duration_minutes: durationMinutes,
-      metadata: metadata,
-      // Add the explicit fields for better querying
-      winner_team: winnerTeam?.name || 'Unknown Team',
-      loser_team: loserTeam?.name || 'Unknown Team',
-      match_type: match.type || '8-ball'
+      // Include all fields in metadata for schema compatibility
+      metadata: {
+        ...metadata,
+        // Always include these properties in metadata
+        winner_team: winnerTeam?.name || 'Unknown Team',
+        loser_team: loserTeam?.name || 'Unknown Team',
+        match_type: match.type || '8-ball'
+      }
     };
     
-    // Insert into match_archives
-    console.log('[matches] Saving match archive with data:', JSON.stringify({
+    // The safest approach is to try inserting without the extra columns first,
+    // and if that fails with a specific error about missing columns, try with them
+    let insertResult;
+    let insertError = null;
+    
+    try {
+      console.log('[matches] Attempting to insert match archive with standard fields');
+      insertResult = await supabase
+        .from('match_archives')
+        .insert([matchSummary]);
+      
+      insertError = insertResult.error;
+      
+      // If there's an error about a missing column, we'll try again with additional fields
+      if (insertError) {
+        console.warn('[matches] Initial insert failed:', insertError.message);
+        throw insertError;
+      }
+    } catch (err) {
+      insertError = err;
+      console.warn('[matches] Error in first insert attempt:', err);
+      
+      // Let's try again with the extra fields if the error seems like it might be related to schema
+      // This is a fallback approach for backward compatibility
+      try {
+        // Add the fields that might exist in some DB environments but not others
+        const extendedMatchSummary = {
+          ...matchSummary,
+          winner_team: winnerTeam?.name || 'Unknown Team',
+          loser_team: loserTeam?.name || 'Unknown Team',
+          match_type: match.type || '8-ball'
+        };
+        
+        console.log('[matches] Trying again with extended fields');
+        const secondResult = await supabase
+          .from('match_archives')
+          .insert([extendedMatchSummary]);
+        
+        if (secondResult.error) {
+          console.error('[matches] Second attempt also failed:', secondResult.error);
+          throw secondResult.error;
+        } else {
+          console.log('[matches] Second attempt succeeded with extended fields');
+          insertError = null;
+        }
+      } catch (secondErr) {
+        console.error('[matches] Both insert attempts failed');
+        throw secondErr;
+      }
+    }
+    
+    // Log what we're doing - we've already inserted the record above
+    console.log('[matches] Match archive saved with data:', JSON.stringify({
       match_id: matchSummary.match_id,
       table_id: matchSummary.table_id,
       player_count: matchSummary.players.length,
       winner_id: matchSummary.winner_player_id
     }));
     
-    const { error: archiveError } = await supabase
-      .from('match_archives')
-      .insert([matchSummary]);
-    
-    if (archiveError) {
+    // If we got an error during both insert attempts, throw it now
+    if (insertError) {
       console.error('[matches] Error details while archiving match:', {
-        error: archiveError,
+        error: insertError,
         matchId,
         players: allPlayers
       });
-      throw archiveError;
+      throw insertError;
     }
     
     // Delete the original match

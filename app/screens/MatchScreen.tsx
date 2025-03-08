@@ -8,15 +8,15 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Alert,
-  Modal,
-  Image
+  Modal
 } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../types/navigation.types';
 import { fetchMatch, updateMatchScore, endMatch, archiveMatch, updateTeamTypes } from '../api/matches';
 import { supabase } from '../api/supabase';
-import { EnhancedMatch, TeamData } from '../types/custom.types';
+import { EnhancedMatch, TeamData, MatchMetadata } from '../types/custom.types';
+import { Match } from '../types/database.types';
 import { format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import { validateMatchScore, validateTeams, validateMetadata, getSafeTeam, getSafeScore } from '../utils/validationUtils';
@@ -41,21 +41,22 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
   const [showBallTypeModal, setShowBallTypeModal] = useState(false);
   const [remoteUpdate, setRemoteUpdate] = useState<boolean>(false);
   const [matchEnded, setMatchEnded] = useState<boolean>(false);
-  const [ratingChanges, setRatingChanges] = useState<{[key: string]: {initial: number, final: number}} | null>(null);
+  const [ratingChanges, setRatingChanges] = useState<Record<string, RatingChange> | null>(null);
   const [winnerTeamIndex, setWinnerTeamIndex] = useState<number | null>(null);
-  const subscriptionRef = useRef<any>(null);
+  const subscriptionRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   
   // Set up realtime subscription for match updates
   useEffect(() => {
     if (!matchId) return;
     
+    const channelName = `match-updates-${matchId}`;
+    
     const setupSubscription = async () => {
       console.log(`Setting up subscription for match: ${matchId}`);
       
-      // Clear any existing subscription
+      // Clean up any existing subscription first
       if (subscriptionRef.current) {
         try {
-          // Use unsubscribe instead of removeSubscription
           subscriptionRef.current.unsubscribe();
           console.log('Successfully unsubscribed from previous channel');
         } catch (err) {
@@ -64,85 +65,107 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         subscriptionRef.current = null;
       }
       
-      // Subscribe to changes on the matches table for this match
-      const channel = supabase
-        .channel('match-updates')
-        .on('postgres_changes', 
-          { 
-            event: '*', 
-            schema: 'public', 
-            table: 'matches',
-            filter: `id=eq.${matchId}`
-          }, 
-          (payload: { 
-            eventType: 'INSERT' | 'UPDATE' | 'DELETE'; 
-            new: Match | null; 
-            old: Match | null;
-          }) => {
-            console.log('Match update received:', payload);
-            
-            // Handle different types of updates
-            if (payload.eventType === 'UPDATE' && payload.new) {
-              const updatedMatch = payload.new;
+      try {
+        // Subscribe to changes on the matches table for this match
+        const channel = supabase
+          .channel(channelName)
+          .on('postgres_changes', 
+            { 
+              event: '*', 
+              schema: 'public', 
+              table: 'matches',
+              filter: `id=eq.${matchId}`
+            }, 
+            (payload: { 
+              eventType: 'INSERT' | 'UPDATE' | 'DELETE'; 
+              new: Match | null; 
+              old: Match | null;
+            }) => {
+              console.log('Match update received:', payload);
               
-              // Check if the match has been completed (status changed to completed)
-              if (updatedMatch.status === 'completed' && match?.status === 'active') {
-                console.log('Match completed remotely');
+              // Handle different types of updates
+              if (payload.eventType === 'UPDATE' && payload.new) {
+                const updatedMatch = payload.new;
+                
+                // Check if the match has been completed (status changed to completed)
+                if (updatedMatch.status === 'completed' && match?.status === 'active') {
+                  console.log('Match completed remotely');
+                  setMatchEnded(true);
+                  setRemoteUpdate(true);
+                  
+                  // Safely validate the score data
+                  const validatedScore = validateMatchScore(updatedMatch.score);
+                  const finalScore = validatedScore.current_score;
+                  const winningTeamIndex = finalScore[0] > finalScore[1] ? 0 : 1;
+                  setWinnerTeamIndex(winningTeamIndex);
+                  
+                  // Update the score to match the server state
+                  setScore(finalScore);
+                  
+                  // Check if there are any match archives created with rating changes for this match
+                  checkForMatchArchive();
+                } 
+                // Handle score updates
+                else if (updatedMatch.score && JSON.stringify(updatedMatch.score) !== JSON.stringify(match?.score)) {
+                  console.log('Score updated remotely');
+                  const validatedScore = validateMatchScore(updatedMatch.score);
+                  setScore(validatedScore.current_score);
+                  
+                  // Only set remoteUpdate to true if this is truly a remote update
+                  // If the current score matches what we just set locally, don't disable buttons
+                  const currentLocalScore = score;
+                  const incomingScore = validatedScore.current_score;
+                  const scoresMatch = JSON.stringify(currentLocalScore) === JSON.stringify(incomingScore);
+                  
+                  if (!scoresMatch) {
+                    console.log('Score update is from a different device, disabling inputs temporarily');
+                    setRemoteUpdate(true);
+                    
+                    // Reset remoteUpdate after a short delay to re-enable buttons
+                    setTimeout(() => {
+                      setRemoteUpdate(false);
+                    }, 1000);
+                  } else {
+                    console.log('Score update is confirmation of our local change, not disabling inputs');
+                  }
+                }
+                // Handle team type updates (stripes/solids)
+                else if (updatedMatch.teams && JSON.stringify(updatedMatch.teams) !== JSON.stringify(match?.teams)) {
+                  console.log('Teams updated remotely');
+                  // Refresh match data by fetching it again
+                  fetchMatch(matchId).then(updatedMatchData => {
+                    if (updatedMatchData) {
+                      setMatch(updatedMatchData);
+                    }
+                  }).catch(err => {
+                    console.error('Error refreshing match after team update:', err);
+                  });
+                }
+              } 
+              // Handle match deletion (usually means it was archived)
+              else if (payload.eventType === 'DELETE') {
+                console.log('Match deleted (likely archived)');
+                checkForMatchArchive();
                 setMatchEnded(true);
                 setRemoteUpdate(true);
-                
-                // Determine the winner based on the score
-                const scoreData = updatedMatch.score as any;
-                const finalScore = scoreData?.current_score || [0, 0];
-                const winningTeamIndex = finalScore[0] > finalScore[1] ? 0 : 1;
-                setWinnerTeamIndex(winningTeamIndex);
-                
-                // Update the score to match the server state
-                setScore(finalScore);
-                
-                // Check if there are any match archives created with rating changes for this match
-                checkForMatchArchive();
-              } 
-              // Handle score updates
-              else if (updatedMatch.score && JSON.stringify(updatedMatch.score) !== JSON.stringify(match?.score)) {
-                console.log('Score updated remotely');
-                const scoreData = updatedMatch.score as any;
-                setScore(scoreData.current_score || [0, 0]);
-                setRemoteUpdate(true);
               }
-              // Handle team type updates (stripes/solids)
-              else if (updatedMatch.teams && JSON.stringify(updatedMatch.teams) !== JSON.stringify(match?.teams)) {
-                console.log('Teams updated remotely');
-                // Refresh match data by fetching it again
-                fetchMatch(matchId).then(updatedMatchData => {
-                  if (updatedMatchData) {
-                    setMatch(updatedMatchData);
-                  }
-                }).catch(err => {
-                  console.error('Error refreshing match after team update:', err);
-                });
-              }
-            } 
-            // Handle match deletion (usually means it was archived)
-            else if (payload.eventType === 'DELETE') {
-              console.log('Match deleted (likely archived)');
-              checkForMatchArchive();
-              setMatchEnded(true);
-              setRemoteUpdate(true);
             }
-          }
-        )
-        .subscribe();
-      
-      subscriptionRef.current = channel;
-      console.log('New subscription established');
+          )
+          .subscribe();
+        
+        subscriptionRef.current = channel;
+        console.log(`New subscription established on channel: ${channelName}`);
+      } catch (error) {
+        console.error('Error setting up match subscription:', error);
+      }
     };
     
     setupSubscription();
     
+    // Clean up subscription when component unmounts
     return () => {
       if (subscriptionRef.current) {
-        console.log('Cleaning up match subscription on component unmount');
+        console.log(`Cleaning up match subscription for ${matchId}`);
         try {
           subscriptionRef.current.unsubscribe();
         } catch (err) {
@@ -169,12 +192,8 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
       
       if (data) {
         // Use the dedicated column if available, fall back to metadata
-        const winnerTeam = data.winner_team || 
-                          (data.metadata && typeof data.metadata === 'object' ? 
-                           (data.metadata as MatchMetadata).winner_team : null);
-                           
-        // Safely validate metadata
         const validatedMetadata = validateMetadata(data.metadata);
+        const winnerTeam = data.winner_team || validatedMetadata.winner_team || null;
         
         // Set rating changes if available
         if (validatedMetadata.rating_changes) {
@@ -183,7 +202,7 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         }
         
         // Try to find winner team index
-        if (winnerTeam && match?.teams) {
+        if (winnerTeam && match) {
           const validatedTeams = validateTeams(match.teams);
           const index = validatedTeams.findIndex(team => team.name === winnerTeam);
           if (index !== -1) {
@@ -238,10 +257,9 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         
         setMatch(matchData);
         
-        // Initialize score from match data
-        if (matchData.score && Array.isArray(matchData.score.current_score)) {
-          setScore(matchData.score.current_score);
-        }
+        // Initialize score from match data with validation
+        const validatedScore = validateMatchScore(matchData.score);
+        setScore(validatedScore.current_score);
         
         // Check if match is already completed
         if (matchData.status === 'completed') {
@@ -262,6 +280,12 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
   }, [matchId, tableId]);
   
   const handleScoreChange = async (teamIndex: number, increment: boolean) => {
+    // If options are already greyed out from a remote update, don't allow another change
+    if (remoteUpdate) {
+      console.log('Ignoring score change while remote update is in progress');
+      return;
+    }
+    
     const newScore = [...score];
     if (increment) {
       newScore[teamIndex] += 1;
@@ -269,15 +293,29 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
       newScore[teamIndex] -= 1;
     }
     
+    // Update local state immediately for responsive UI
     setScore(newScore);
     
     try {
+      // Temporarily disable buttons while update is in progress
+      console.log('Local score change, temporarily disabling inputs while updating');
+      setRemoteUpdate(true);
+      
+      // Update the server
       await updateMatchScore(matchId, newScore);
+      
+      // Re-enable buttons once we've successfully updated the score
+      // This will allow the user to immediately make additional changes
+      // instead of waiting for the real-time update to come back
+      console.log('Score update successful, re-enabling inputs');
+      setRemoteUpdate(false);
     } catch (error) {
       console.error('Error updating score:', error);
       Alert.alert('Error', 'Failed to update score');
       // Revert score on error
       setScore(score);
+      // Still re-enable buttons so the user can try again
+      setRemoteUpdate(false);
     }
   };
   
@@ -403,6 +441,17 @@ export const MatchScreen: React.FC<Props> = ({ route, navigation }) => {
         const winnerTeam = match.teams[winnerTeamIndex];
         const winnerName = (winnerTeam.playerDetails && winnerTeam.playerDetails[0]?.name) || winnerTeam.name;
         message = `${winnerName} won the match!\n\n${message}`;
+      }
+      
+      // Clean up subscription before showing alert to prevent any further updates
+      if (subscriptionRef.current) {
+        try {
+          console.log(`[MatchScreen] Cleaning up match subscription before navigation`);
+          subscriptionRef.current.unsubscribe();
+          subscriptionRef.current = null;
+        } catch (err) {
+          console.error('Error cleaning up subscription:', err);
+        }
       }
       
       Alert.alert(

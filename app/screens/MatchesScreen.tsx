@@ -90,6 +90,17 @@ export const MatchesScreen: React.FC<MatchesScreenProps> = ({ route }) => {
   
   useEffect(() => {
     fetchVenueData();
+    
+    // Set up a refresh interval to periodically update data
+    const refreshInterval = setInterval(() => {
+      console.log(`[MatchesScreen] Auto-refreshing venue data`);
+      fetchVenueData();
+    }, 30000); // Refresh every 30 seconds
+    
+    // Clean up interval on unmount
+    return () => {
+      clearInterval(refreshInterval);
+    };
   }, [venueId]);
   
   // Check for refresh parameter in route.params and refresh data if needed
